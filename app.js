@@ -29,6 +29,8 @@ import {
   carouselYearGroups,
   carouselYearMarkY,
   carouselYearMarkRadius,
+  carouselYearMarkMinAngle,
+  spreadYearMarkAngles,
   carouselFocusLabel,
 } from "./carousel-tilt.js";
 import {
@@ -1276,26 +1278,28 @@ function syncCarouselYearMarks(
 
   while (state.carouselYearMarks.length < groups.length) ensureCarouselYearMark();
 
+  const markR = carouselYearMarkRadius(radius);
+  const rawAlphas = groups.map((group) => {
+    const a0 = angles[group.indices[0]];
+    const a1 = angles[group.indices[group.indices.length - 1]];
+    if (!Number.isFinite(a0)) return 0;
+    if (!Number.isFinite(a1) || a0 === a1) return a0;
+    return (a0 + a1) * 0.5;
+  });
+  const spaced = spreadYearMarkAngles(
+    rawAlphas,
+    carouselYearMarkMinAngle(markR)
+  );
+
   state.carouselYearMarks.forEach((mark, i) => {
     const group = groups[i];
     if (!group) {
       mark.visible = false;
       return;
     }
-    let alpha;
-    if (groups.length === 1) {
-      const aFirst = angles[group.indices[0]];
-      const aLast = angles[group.indices[group.indices.length - 1]];
-      alpha = (aFirst + aLast) * 0.5;
-    } else {
-      const prev = groups[(i + groups.length - 1) % groups.length];
-      const aPrev = angles[prev.indices[prev.indices.length - 1]];
-      const aThis = angles[group.indices[0]];
-      alpha = carouselForwardMidAngle(aPrev, aThis);
-    }
     const p = pointOnCarouselRing(
-      alpha,
-      carouselYearMarkRadius(radius),
+      spaced[i] ?? 0,
+      markR,
       originX,
       originZ,
       fx,

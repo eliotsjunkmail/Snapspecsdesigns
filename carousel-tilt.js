@@ -140,6 +140,31 @@ export function carouselYearMarkRadius(radius, pull = 0.3) {
   return Math.max(0.8, r - pull);
 }
 
+/** Smallest angle so neighboring year labels do not run together. */
+export function carouselYearMarkMinAngle(radius, markWidth = 2.3, pad = 0.5) {
+  const r = Math.max(0.8, Number(radius) || 6.2);
+  return (markWidth + pad) / r;
+}
+
+/** Push year marks apart along the ring, keeping order. */
+export function spreadYearMarkAngles(alphas, minGap) {
+  const list = Array.isArray(alphas) ? alphas.slice() : [];
+  const n = list.length;
+  if (n < 2) return list;
+  const gap = Number.isFinite(minGap) && minGap > 0 ? minGap : 0;
+  if (!(gap > 0)) return list;
+  const out = [list[0]];
+  for (let i = 1; i < n; i += 1) {
+    let a = list[i];
+    const prev = out[i - 1];
+    while (a < prev - Math.PI) a += Math.PI * 2;
+    while (a > prev + Math.PI) a -= Math.PI * 2;
+    if (a < prev + gap) a = prev + gap;
+    out.push(a);
+  }
+  return out;
+}
+
 /** Keep a taken year on the focus line when the title omitted it. */
 export function carouselFocusLabel(title, year, thumbs = 0) {
   const base = String(title || "").trim();

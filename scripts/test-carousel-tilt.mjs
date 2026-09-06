@@ -14,6 +14,8 @@ import {
   carouselYearGroups,
   carouselYearMarkY,
   carouselYearMarkRadius,
+  carouselYearMarkMinAngle,
+  spreadYearMarkAngles,
   carouselFocusLabel,
 } from "../carousel-tilt.js";
 
@@ -183,6 +185,15 @@ if (carouselFocusLabel("Clip Jul 16", 2024) !== "Clip Jul 16 · 2024") {
 }
 if (carouselFocusLabel("Picnic 2024", 2024) !== "Picnic 2024") {
   throw new Error("a title that already has the year should stay put");
+}
+
+const piled = spreadYearMarkAngles([0, 0], carouselYearMarkMinAngle(6));
+if (piled[1] - piled[0] < carouselYearMarkMinAngle(6) - 1e-9) {
+  throw new Error("stacked years should be pushed apart");
+}
+const roomy = spreadYearMarkAngles([-0.6, 0.6], 0.3);
+if (Math.abs(roomy[0] + 0.6) > 1e-9 || Math.abs(roomy[1] - 0.6) > 1e-9) {
+  throw new Error("years that already have room should stay put");
 }
 
 if (Math.abs(carouselTravelShiftY(0, 0.2, 3, -3) - 0.2) > 1e-9) {
