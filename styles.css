@@ -1429,16 +1429,12 @@ button {
   transform: scale(0.97);
 }
 
-.name-modal {
-  position: fixed;
-  inset: 0;
-  z-index: 20;
-  display: grid;
-  place-items: end center;
-  padding: calc(18px + var(--safe-top)) 16px calc(24px + var(--safe-bottom));
-  background: rgba(0, 0, 0, 0.72);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+.library-pick-panel {
+  gap: 0.85rem;
+}
+
+.library-pick-panel .name-actions {
+  margin-top: 0.35rem;
 }
 
 .name-modal[hidden] {

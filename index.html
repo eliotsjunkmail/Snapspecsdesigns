@@ -19,7 +19,7 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=162" />
+    <link rel="stylesheet" href="styles.css?v=163" />
   </head>
   <body>
     <div id="app">
@@ -123,7 +123,7 @@
 
           <div id="field-loading" class="field-loading" hidden>
             <div class="upload-spinner" aria-hidden="true"></div>
-            <p class="field-loading-copy">Loading clips</p>
+            <p class="field-loading-copy">Opening your videos</p>
           </div>
 
           <div id="react-burst" class="react-burst" hidden aria-hidden="true">👍</div>
@@ -218,6 +218,29 @@
           <div class="upload-spinner" aria-hidden="true"></div>
           <p class="upload-overlay-title" id="upload-overlay-title">Uploading</p>
           <p class="upload-overlay-copy" id="upload-overlay-copy">Sending your video…</p>
+        </div>
+      </div>
+
+      <div id="library-pick" class="name-modal" hidden>
+        <div
+          class="name-panel library-pick-panel"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="library-pick-title"
+        >
+          <p class="name-brand">SnapBack</p>
+          <h2 class="name-title" id="library-pick-title">Choose videos</h2>
+          <p class="name-file" id="library-pick-copy">
+            Pick clips from your photo library. They appear where they were filmed.
+          </p>
+          <div class="name-actions">
+            <button type="button" id="library-pick-skip" class="ghost-btn">
+              Skip for now
+            </button>
+            <button type="button" id="library-pick-btn" class="cta name-submit">
+              Choose from album
+            </button>
+          </div>
         </div>
       </div>
 
@@ -390,7 +413,7 @@
             Take Video
           </button>
           <button type="button" id="add-album" class="add-option add-option-signal">
-            Upload from photo album
+            Choose from photo album
           </button>
         </div>
       </div>

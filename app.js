@@ -104,7 +104,7 @@ function getDeviceId() {
   return id;
 }
 
-// Sample clips are off by default — the field starts with shared pins only.
+// Sample clips are off by default — the field starts from the phone library.
 // To showcase clips for every visitor, add entries here (files in ./media):
 // { id, title, blurb, src: "./media/name.mp4", position: [x, y, z], demo: true }
 const CATALOG = [];
@@ -149,6 +149,9 @@ const fieldLoading = document.getElementById("field-loading");
 const uploadOverlay = document.getElementById("upload-overlay");
 const uploadOverlayTitle = document.getElementById("upload-overlay-title");
 const uploadOverlayCopy = document.getElementById("upload-overlay-copy");
+const libraryPick = document.getElementById("library-pick");
+const libraryPickBtn = document.getElementById("library-pick-btn");
+const libraryPickSkip = document.getElementById("library-pick-skip");
 const addModal = document.getElementById("add-modal");
 const addCapture = document.getElementById("add-capture");
 const addAlbum = document.getElementById("add-album");
@@ -1436,8 +1439,11 @@ function setAddMediaLoading(on) {
   if (addBtn) {
     addBtn.classList.toggle("is-loading", state.mediaLoading);
     addBtn.disabled = state.mediaLoading;
-    addBtn.setAttribute("aria-label", state.mediaLoading ? "Loading clips" : "Add");
-    addBtn.title = state.mediaLoading ? "Loading clips" : "Add";
+    addBtn.setAttribute(
+      "aria-label",
+      state.mediaLoading ? "Opening your videos" : "Add"
+    );
+    addBtn.title = state.mediaLoading ? "Opening your videos" : "Add";
   }
   if (fieldLoading) fieldLoading.hidden = !state.mediaLoading;
 }
@@ -4159,8 +4165,13 @@ function bootField(message) {
       console.warn(err);
       setStatus("Enable location to pin videos within 25 ft", 4500);
     }
-    await syncSharedSpots();
-    await processNameQueue();
+    setAddMediaLoading(false);
+    // Videos come from the phone library — pick on open, or process a prior selection.
+    if (state.nameQueue.length) {
+      await processNameQueue();
+    } else {
+      openLibraryPick();
+    }
   })();
 }
 
@@ -4338,8 +4349,8 @@ function updateUploadNote(count) {
   uploadNote.hidden = false;
   uploadNote.textContent =
     count === 1
-      ? "1 video selected — Open lens to name & pin it"
-      : `${count} videos selected — Open lens to name & pin them`;
+      ? "1 video selected — Open lens to place it"
+      : `${count} videos selected — Open lens to place them`;
 }
 
 // —— Content-aware default names (MobileNet, lazy-loaded) ——
@@ -4620,7 +4631,7 @@ async function placeNamedVideo(file, name, opts = {}) {
     setStatus(`“${name}” pinned where you’re aiming`);
   }
 
-  // Map-list thumbnail for this fresh upload (shared pins get Cloudinary's)
+  // Map-list thumbnail for this fresh pick
   grabVideoFrame(file)
     .then((frame) => {
       node.thumbUrl = frame.toDataURL("image/jpeg", 0.65);
@@ -4629,7 +4640,7 @@ async function placeNamedVideo(file, name, opts = {}) {
     })
     .catch(() => {});
 
-  // Wait for the cloud publish so the spinner stays up until the file is sent
+  // Optional shared-world publish when Cloudinary is configured in config.js
   if (cloudConfigured()) {
     showUploadOverlay("Uploading", `Sending “${name}”…`);
     try {
@@ -4963,11 +4974,25 @@ function closeAddModal() {
   if (addModal) addModal.hidden = true;
 }
 
+function openLibraryPick() {
+  if (!libraryPick) return;
+  if (state.watching || state.naming) return;
+  closeAddModal();
+  closeFilterSheets();
+  closeCreateModal(true);
+  libraryPick.hidden = false;
+}
+
+function closeLibraryPick() {
+  if (libraryPick) libraryPick.hidden = true;
+}
+
 function openAddModal() {
   if (!addModal) return;
   if (state.watching || state.naming) return;
   closeFilterSheets();
   closeCreateModal(true);
+  closeLibraryPick();
   addModal.hidden = false;
 }
 
@@ -5018,11 +5043,13 @@ async function processNameQueue() {
     if (!file) continue;
     index += 1;
     const source = item?.source || "album";
-    const batch =
-      total > 1 ? ` (${index} of ${total})` : "";
+    const batch = total > 1 ? ` (${index} of ${total})` : "";
     let meta = item?.meta || { lat: null, lng: null, takenAt: null };
     if (source === "album" && !item?.meta) {
-      showUploadOverlay("Reading video", `Finding where it was filmed${batch}…`);
+      showUploadOverlay(
+        "Reading video",
+        `Finding where it was filmed${batch}…`
+      );
       meta = await readVideoCaptureMeta(file);
     }
     if (!meta.takenAt) {
@@ -5030,10 +5057,24 @@ async function processNameQueue() {
         ? new Date(file.lastModified).toISOString()
         : new Date().toISOString();
     }
-    hideUploadOverlay();
-    const name = await openNameModal(file, meta, source);
-    if (!name) continue;
-    showUploadOverlay("Uploading", `Sending “${name}”${batch}…`);
+
+    let name;
+    if (source === "album") {
+      // Album picks go straight into the field — no rename / cloud upload step.
+      name = titleFromAlbumFile(file);
+      showUploadOverlay("Opening", `Placing “${name}”${batch}…`);
+    } else {
+      hideUploadOverlay();
+      name = await openNameModal(file, meta, source);
+      if (!name) continue;
+      showUploadOverlay(
+        cloudConfigured() ? "Uploading" : "Opening",
+        cloudConfigured()
+          ? `Sending “${name}”${batch}…`
+          : `Placing “${name}”${batch}…`
+      );
+    }
+
     try {
       await placeNamedVideo(file, name, {
         lat: meta.lat,
@@ -5051,6 +5092,16 @@ async function processNameQueue() {
   updateUploadNote(state.nameQueue.length + state.pendingUploads.length);
 }
 
+function titleFromAlbumFile(file) {
+  const raw = String(file?.name || "Video")
+    .replace(/\.[^.]+$/, "")
+    .replace(/[_\-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!raw) return "Video";
+  return raw.charAt(0).toUpperCase() + raw.slice(1);
+}
+
 function isVideoFile(file) {
   if (file?.type?.startsWith("video/")) return true;
   return /\.(mp4|m4v|mov|qt|webm|mkv)$/i.test(file?.name || "");
@@ -5064,8 +5115,9 @@ function addUploadedFiles(fileList, source = "album") {
   }
 
   const items = files.map((file) => ({ file, source }));
+  closeLibraryPick();
 
-  // Warm the classifier so the content-based name lands quickly
+  // Warm the classifier so capture naming stays snappy when used
   loadVisionModel().catch(() => {});
 
   if (!state.booted || !scene) {
@@ -5073,15 +5125,17 @@ function addUploadedFiles(fileList, source = "album") {
     updateUploadNote(state.pendingUploads.length);
     setStatus(
       files.length === 1
-        ? "Video selected — Open lens to name & pin"
-        : `${files.length} videos selected — Open lens to name & pin`
+        ? "Video selected — Open lens to place it"
+        : `${files.length} videos selected — Open lens to place them`
     );
     return files.length;
   }
 
   showUploadOverlay(
-    "Uploading",
-    files.length === 1 ? "Opening your video…" : `Preparing ${files.length} videos…`
+    "Opening",
+    files.length === 1
+      ? "Opening your video…"
+      : `Preparing ${files.length} videos…`
   );
   state.nameQueue.push(...items);
   processNameQueue();
@@ -5152,6 +5206,13 @@ addBtn?.addEventListener("click", (e) => {
 addClose?.addEventListener("click", closeAddModal);
 addModal?.addEventListener("click", (e) => {
   if (e.target === addModal) closeAddModal();
+});
+libraryPickBtn?.addEventListener("click", () => {
+  videoInputField?.click();
+});
+libraryPickSkip?.addEventListener("click", closeLibraryPick);
+libraryPick?.addEventListener("click", (e) => {
+  if (e.target === libraryPick) closeLibraryPick();
 });
 addCreate?.addEventListener("click", () => {
   openCreateModal();
