@@ -207,6 +207,8 @@ const state = {
   pendingUploads: [],
   nameQueue: [],
   naming: false,
+  enterAfterLibraryPick: false,
+  libraryEnterToken: 0,
   uploadCount: 0,
   originGeo: null,
   userGeo: null,
@@ -4245,9 +4247,51 @@ async function syncSharedSpots() {
   setAddMediaLoading(false);
 }
 
-function enterField() {
+function enterField(e) {
+  if (state.booting || state.booted) return;
+  if (state.enterAfterLibraryPick) return;
+
+  // Open the system photo library with this tap's user gesture, then boot.
+  // (Browsers block file-picker clicks after await / permission prompts.)
+  if (!state.pendingUploads.length && !state.nameQueue.length) {
+    if (e?.type === "touchend") e.preventDefault();
+    const input = videoInputGate || videoInputField;
+    if (!input) {
+      beginEnterField();
+      return;
+    }
+    const token = ++state.libraryEnterToken;
+    state.enterAfterLibraryPick = true;
+    if (enterBtn) enterBtn.textContent = "Choose videos…";
+
+    const resumeWithoutPick = () => {
+      if (token !== state.libraryEnterToken || !state.enterAfterLibraryPick) return;
+      state.enterAfterLibraryPick = false;
+      beginEnterField();
+    };
+
+    const onFocus = () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVis);
+      // change may fire just before focus — wait briefly
+      setTimeout(resumeWithoutPick, 450);
+    };
+    const onVis = () => {
+      if (document.visibilityState === "visible") onFocus();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVis);
+    input.click();
+    return;
+  }
+
+  beginEnterField();
+}
+
+function beginEnterField() {
   if (state.booting || state.booted) return;
   state.booting = true;
+  state.enterAfterLibraryPick = false;
 
   // Safari drops the user-gesture if we disable the button or await
   // before getUserMedia / DeviceOrientation.requestPermission.
@@ -5123,14 +5167,21 @@ function addUploadedFiles(fileList, source = "album") {
   // Warm the classifier so capture naming stays snappy when used
   loadVisionModel().catch(() => {});
 
+  const continueEnter = state.enterAfterLibraryPick && !state.booted;
+  if (continueEnter) {
+    state.enterAfterLibraryPick = false;
+    state.libraryEnterToken += 1;
+  }
+
   if (!state.booted || !scene) {
     state.pendingUploads.push(...items);
     updateUploadNote(state.pendingUploads.length);
     setStatus(
       files.length === 1
-        ? "Video selected — Open lens to place it"
-        : `${files.length} videos selected — Open lens to place them`
+        ? "Video selected — opening lens…"
+        : `${files.length} videos selected — opening lens…`
     );
+    if (continueEnter) beginEnterField();
     return files.length;
   }
 
