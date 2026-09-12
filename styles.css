@@ -1437,6 +1437,10 @@ button {
   margin-top: 0.35rem;
 }
 
+#library-pick {
+  z-index: 22;
+}
+
 .name-modal[hidden] {
   display: none !important;
 }

@@ -4981,15 +4981,18 @@ function openLibraryPick() {
   closeFilterSheets();
   closeCreateModal(true);
   libraryPick.hidden = false;
+  if (addBtn) addBtn.disabled = true;
 }
 
 function closeLibraryPick() {
   if (libraryPick) libraryPick.hidden = true;
+  if (addBtn && !state.mediaLoading) addBtn.disabled = false;
 }
 
 function openAddModal() {
   if (!addModal) return;
   if (state.watching || state.naming) return;
+  if (libraryPick && !libraryPick.hidden) return;
   closeFilterSheets();
   closeCreateModal(true);
   closeLibraryPick();
