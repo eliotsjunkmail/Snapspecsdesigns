@@ -3151,9 +3151,10 @@ function recenterOnUser() {
   state.townFollowsUser = true;
   lookupPlace(you.lat, you.lng);
   const here = userTownName();
-  if (here) {
-    state.selectedTown = here;
-    state.mapExpandedTown = here;
+  const best = pickTownForView(here);
+  if (best) {
+    state.selectedTown = best;
+    state.mapExpandedTown = best;
     state.mapTownCollapsed = false;
   }
   syncTownDropdown();
@@ -3374,7 +3375,7 @@ function pumpPlaceQueue() {
           you &&
           distanceMeters(you.lat, you.lng, job.lat, job.lng) <= 450
         ) {
-          state.selectedTown = place;
+          state.selectedTown = pickTownForView(place);
         }
         if (state.mapOpen) refreshMapList();
         syncTownDropdown();
@@ -3405,6 +3406,46 @@ function userTownName() {
   return nearestCachedPlace(you.lat, you.lng);
 }
 
+/** Prefer the current/user town when it has clips; else nearest town with ≥1 clip. */
+function pickTownForView(preferredTown) {
+  const nodes = allGeoNodes().filter((n) => nodeInTimeRange(n));
+  if (!nodes.length) return formatTownName(preferredTown || "") || null;
+
+  const preferred = formatTownName(preferredTown || "");
+  if (preferred && preferred !== FALLBACK_TOWN) {
+    const hasPreferred = nodes.some((n) => nodeTown(n) === preferred);
+    if (hasPreferred) return preferred;
+  }
+
+  const origin = viewOrigin() || gpsOrigin();
+  let best = null;
+  let bestD = Infinity;
+  const byTown = new Map();
+  for (const n of nodes) {
+    const key = nodeTown(n);
+    if (!key || key === FALLBACK_TOWN) continue;
+    let group = byTown.get(key);
+    if (!group) {
+      group = { key, dist: Infinity };
+      byTown.set(key, group);
+    }
+    let d = Number.isFinite(n.distanceM) ? n.distanceM : Infinity;
+    if (origin && Number.isFinite(n.lat) && Number.isFinite(n.lng)) {
+      d = Math.min(d, distanceMeters(origin.lat, origin.lng, n.lat, n.lng));
+    }
+    if (d < group.dist) group.dist = d;
+  }
+  for (const group of byTown.values()) {
+    if (group.dist < bestD) {
+      bestD = group.dist;
+      best = group.key;
+    }
+  }
+  if (best) return best;
+  // Named towns not ready yet — fall back to Nearby so all clips stay visible.
+  return preferred || FALLBACK_TOWN;
+}
+
 function ensureTownPlaces() {
   const you = gpsOrigin();
   if (you) lookupPlace(you.lat, you.lng);
@@ -3415,7 +3456,12 @@ function ensureTownPlaces() {
   }
   if (state.townFollowsUser) {
     const here = userTownName();
-    if (here) state.selectedTown = here;
+    const best = pickTownForView(here);
+    if (best) state.selectedTown = best;
+  } else {
+    const current = formatTownName(state.selectedTown || "");
+    const best = pickTownForView(current);
+    if (best && best !== current) state.selectedTown = best;
   }
 }
 
@@ -3514,6 +3560,8 @@ function buildMapTownGroup(key) {
 
 function defaultExpandedTown(groups) {
   const here = userTownName() || state.selectedTown;
+  const best = pickTownForView(here);
+  if (best && groups.some((g) => g.key === best)) return best;
   if (here && groups.some((g) => g.key === here)) return here;
   return groups[0]?.key || null;
 }
@@ -4663,13 +4711,14 @@ async function syncSharedSpots() {
     added += 1;
   }
 
-  if (added) {
-    updateGeoAnchors();
-    if (state.mapOpen) {
-      refreshMapList();
-      syncLeafletMarkers();
-      if (state.viewFollowsUser) fitMapToPins();
-    }
+  // Always re-pick town: empty current location → nearest town with clips.
+  updateGeoAnchors();
+  if (added && state.mapOpen) {
+    refreshMapList();
+    syncLeafletMarkers();
+    if (state.viewFollowsUser) fitMapToPins();
+  } else if (state.mapOpen) {
+    refreshMapList();
   }
   await Promise.all(viewClipNodes().map((n) => waitForNodePoster(n)));
   setAddMediaLoading(false);
