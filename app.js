@@ -4168,10 +4168,13 @@ function bootField(message) {
       setStatus("Enable location to pin videos within 25 ft", 4500);
     }
     setAddMediaLoading(false);
-    // Videos come from the phone library — pick on open, or process a prior selection.
+    // Shared pins from Cloudinary when configured; otherwise phone library only.
+    if (cloudConfigured()) {
+      await syncSharedSpots();
+    }
     if (state.nameQueue.length) {
       await processNameQueue();
-    } else {
+    } else if (!cloudConfigured() || viewClipNodes().length === 0) {
       openLibraryPick();
     }
   })();
