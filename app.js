@@ -4623,6 +4623,10 @@ async function syncSharedSpots() {
   } catch (err) {
     console.warn(err);
     setAddMediaLoading(false);
+    setStatus(
+      "Couldn’t load shared clips — upload again or enable Cloudinary Resource list",
+      5200
+    );
     return;
   }
 
