@@ -1412,15 +1412,30 @@ button {
   opacity: 0.85;
 }
 
-.theater-caption {
+.theater-caption-bar {
   position: absolute;
   right: 10px;
   bottom: 10px;
-  margin: 0;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
   max-width: calc(100% - 20px);
-  padding: 0.35rem 0.7rem;
-  border-radius: 2px;
+  padding: 0.28rem 0.35rem 0.28rem 0.7rem;
+  border-radius: 999px;
   background: rgba(0, 0, 0, 0.72);
+  pointer-events: auto;
+}
+
+.theater-caption {
+  position: static;
+  right: auto;
+  bottom: auto;
+  margin: 0;
+  max-width: none;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--foam);
   font-size: 0.78rem;
   font-weight: 600;
@@ -1428,6 +1443,35 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   pointer-events: none;
+}
+
+.theater-thumb {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  min-height: 1.7rem;
+  padding: 0 0.45rem;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--foam);
+  font-size: 0.85rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.theater-thumb.is-on {
+  background: rgba(158, 196, 200, 0.28);
+}
+
+.theater-thumb:active {
+  transform: scale(0.94);
+}
+
+.theater-thumb-count:empty {
+  display: none;
 }
 
 .theater-actions {

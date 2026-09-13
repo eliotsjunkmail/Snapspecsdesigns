@@ -73,12 +73,17 @@ export function saveSpotOverride(id, patch) {
 function applyOverride(spot) {
   const o = readOverrides()[spot.id];
   if (!o) return spot;
+  const thumbs = Math.max(
+    Number(spot.thumbs) || 0,
+    Number.isFinite(o.thumbs) ? Number(o.thumbs) : 0
+  );
   return {
     ...spot,
     title: o.title != null ? o.title : spot.title,
     lat: Number.isFinite(o.lat) ? o.lat : spot.lat,
     lng: Number.isFinite(o.lng) ? o.lng : spot.lng,
     place: o.place != null ? o.place : spot.place,
+    thumbs,
   };
 }
 
@@ -104,6 +109,7 @@ export async function loadSpots() {
         place: ctx.place || "",
         owner: ctx.owner || "",
         takenAt: parseTakenAt(ctx.taken),
+        thumbs: Math.max(0, Number.parseInt(ctx.thumbs, 10) || 0),
         video_path: `v${r.version}/${r.public_id}.${r.format || "mp4"}`,
       };
       return applyOverride(spot);
@@ -130,10 +136,11 @@ function safeContextValue(value) {
   return String(value ?? "").replace(/[|=]/g, " ").trim();
 }
 
-function buildContext({ title, lat, lng, owner, takenAt, place }) {
+function buildContext({ title, lat, lng, owner, takenAt, place, thumbs }) {
   const safeTitle = safeContextValue(title);
   const taken = safeTakenContext(takenAt);
   const safePlace = safeContextValue(place);
+  const thumbCount = Math.max(0, Number.parseInt(thumbs, 10) || 0);
   const parts = [
     `title=${safeTitle}`,
     `lat=${lat}`,
@@ -142,6 +149,7 @@ function buildContext({ title, lat, lng, owner, takenAt, place }) {
   ];
   if (taken) parts.push(`taken=${taken}`);
   if (safePlace) parts.push(`place=${safePlace}`);
+  if (thumbCount > 0) parts.push(`thumbs=${thumbCount}`);
   return parts.join("|");
 }
 
@@ -181,7 +189,10 @@ export async function publishSpot(file, { title, lat, lng, owner, takenAt, place
  * Prefers Cloudinary Admin API when key+secret are configured; always
  * writes a local override so this device stays consistent.
  */
-export async function updateSpotMeta(id, { title, lat, lng, place, owner, takenAt }) {
+export async function updateSpotMeta(
+  id,
+  { title, lat, lng, place, owner, takenAt, thumbs }
+) {
   const publicId = String(id || "");
   if (!publicId) throw new Error("Missing video id");
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
@@ -194,6 +205,7 @@ export async function updateSpotMeta(id, { title, lat, lng, place, owner, takenA
     lng,
     place: safeContextValue(place),
   };
+  if (thumbs != null) patch.thumbs = Math.max(0, Number.parseInt(thumbs, 10) || 0);
   saveSpotOverride(publicId, patch);
 
   if (!adminApiConfigured()) {
@@ -212,6 +224,7 @@ export async function updateSpotMeta(id, { title, lat, lng, place, owner, takenA
       place: patch.place,
       owner: owner || "",
       takenAt: takenAt || "",
+      thumbs: patch.thumbs,
     })
   );
 
@@ -235,6 +248,78 @@ export async function updateSpotMeta(id, { title, lat, lng, place, owner, takenA
     );
   }
   return { ...patch, id: publicId, persisted: "cloud" };
+}
+
+/** 1×1 transparent GIF used as an unsigned “like receipt” upload. */
+const PIXEL_GIF = Uint8Array.from(
+  atob("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"),
+  (c) => c.charCodeAt(0)
+);
+
+function thumbPublicId(videoId, owner) {
+  const vid = safeContextValue(videoId).replace(/[^\w.-]+/g, "_").slice(0, 120);
+  const who = safeContextValue(owner).replace(/[^\w.-]+/g, "_").slice(0, 40) || "anon";
+  return `thumbs/${vid}/${who}`;
+}
+
+/** One like per device, stored as a tiny image tagged lumen-thumb (unsigned). */
+export async function publishThumb(videoId, owner) {
+  if (!isCloudConfigured()) {
+    throw new Error("Cloudinary is not configured");
+  }
+  const form = new FormData();
+  form.append("file", new Blob([PIXEL_GIF], { type: "image/gif" }), "thumb.gif");
+  form.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+  form.append("tags", "lumen-thumb");
+  form.append("public_id", thumbPublicId(videoId, owner));
+  form.append(
+    "context",
+    `video=${safeContextValue(videoId)}|owner=${safeContextValue(owner)}`
+  );
+
+  const res = await fetch(
+    `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
+    { method: "POST", body: form }
+  );
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(
+      detail?.error?.message || `Thumb upload failed (${res.status})`
+    );
+  }
+  return res.json();
+}
+
+/** Count shared thumbs from unsigned like-receipt uploads. */
+export async function loadThumbCounts() {
+  if (!CLOUDINARY_CLOUD_NAME) return {};
+  const res = await fetch(
+    `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/image/list/lumen-thumb.json?t=${Math.floor(
+      Date.now() / 30000
+    )}`
+  );
+  if (res.status === 404) return {};
+  if (!res.ok) throw new Error(`Loading thumbs failed (${res.status})`);
+  const data = await res.json();
+  const counts = {};
+  for (const r of data.resources || []) {
+    const vid = r.context?.custom?.video || "";
+    if (!vid) continue;
+    counts[vid] = (counts[vid] || 0) + 1;
+  }
+  return counts;
+}
+
+/**
+ * Persist a new thumbs total for a spot (local override always;
+ * Cloudinary context when Admin API is configured).
+ */
+export function persistThumbCount(id, thumbs) {
+  const publicId = String(id || "");
+  if (!publicId) return;
+  saveSpotOverride(publicId, {
+    thumbs: Math.max(0, Number.parseInt(thumbs, 10) || 0),
+  });
 }
 
 export async function deleteSpot(id, path, deleteToken) {

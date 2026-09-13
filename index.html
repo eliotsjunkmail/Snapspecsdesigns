@@ -19,7 +19,7 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=169" />
+    <link rel="stylesheet" href="styles.css?v=170" />
   </head>
   <body>
     <div id="app">
@@ -182,7 +182,19 @@
                 <span class="aim-corner aim-bl"></span>
                 <span class="aim-corner aim-br"></span>
               </div>
-              <p class="theater-caption" id="theater-title">Untitled</p>
+              <div class="theater-caption-bar" id="theater-caption-bar">
+                <p class="theater-caption" id="theater-title">Untitled</p>
+                <button
+                  type="button"
+                  id="theater-thumb"
+                  class="theater-thumb"
+                  aria-label="Thumb up"
+                  aria-pressed="false"
+                >
+                  <span aria-hidden="true">👍</span>
+                  <span id="theater-thumb-count" class="theater-thumb-count"></span>
+                </button>
+              </div>
             </div>
             <div class="theater-actions">
               <button type="button" id="theater-done" class="theater-done">
@@ -556,6 +568,6 @@
       }
     </script>
     <script src="https://js.puter.com/v2/"></script>
-    <script type="module" src="app.js?v=169"></script>
+    <script type="module" src="app.js?v=170"></script>
   </body>
 </html>

@@ -2,7 +2,10 @@ import * as THREE from "three";
 import {
   cloudConfigured,
   loadSpots,
+  loadThumbCounts,
   publishSpot,
+  publishThumb,
+  persistThumbCount,
   deleteSpot,
   updateSpotMeta,
   adminApiConfigured,
@@ -153,6 +156,8 @@ const theater = document.getElementById("theater");
 const theaterVideo = document.getElementById("theater-video");
 const theaterImage = document.getElementById("theater-image");
 const theaterTitle = document.getElementById("theater-title");
+const theaterThumb = document.getElementById("theater-thumb");
+const theaterThumbCount = document.getElementById("theater-thumb-count");
 const theaterScreenWrap = document.querySelector(".theater-screen-wrap");
 const uploadNote = document.getElementById("upload-note");
 const videoInputGate = document.getElementById("video-input-gate");
@@ -1900,15 +1905,109 @@ function showThumbsBurst() {
   }, 1100);
 }
 
+function thumbStorageId(node) {
+  return String(node?.cloudId || node?.id || "");
+}
+
+function readThumbedSet() {
+  try {
+    const raw = localStorage.getItem("lumen-thumbed-ids");
+    const data = raw ? JSON.parse(raw) : {};
+    return data && typeof data === "object" ? data : {};
+  } catch {
+    return {};
+  }
+}
+
+function hasDeviceThumbed(id) {
+  const key = String(id || "");
+  if (!key) return false;
+  return Boolean(readThumbedSet()[key]);
+}
+
+function markDeviceThumbed(id) {
+  const key = String(id || "");
+  if (!key) return;
+  const all = readThumbedSet();
+  all[key] = true;
+  try {
+    localStorage.setItem("lumen-thumbed-ids", JSON.stringify(all));
+  } catch {
+    /* ignore */
+  }
+}
+
+function syncTheaterThumbUI(node = state.watchingNode) {
+  if (!theaterThumb) return;
+  const count = Math.max(0, Number(node?.thumbs) || 0);
+  if (theaterThumbCount) {
+    theaterThumbCount.textContent = count > 0 ? String(count) : "";
+  }
+  const id = thumbStorageId(node);
+  const on = Boolean(id && hasDeviceThumbed(id));
+  theaterThumb.classList.toggle("is-on", on);
+  theaterThumb.setAttribute("aria-pressed", String(on));
+  theaterThumb.disabled = !node;
+}
+
 function addThumbsUp(node) {
   if (!node) return;
+  const id = thumbStorageId(node);
+  if (id && hasDeviceThumbed(id)) {
+    syncTheaterThumbUI(node);
+    setStatus("Already thumbed this clip", 2200);
+    return;
+  }
+  if (id) markDeviceThumbed(id);
   node.thumbs = (node.thumbs || 0) + 1;
   refreshNodeChrome(node);
   showThumbsBurst();
+  syncTheaterThumbUI(node);
   if (state.focused === node) {
-    focusLabel.textContent = `${node.title} 👍`;
+    focusLabel.textContent = carouselFocusLabel(
+      node.title,
+      nodeTakenYear(node),
+      node.thumbs || 0
+    );
+  }
+  if (state.watching && state.watchingNode === node) {
+    updateTheaterCaption(node);
   }
   setStatus(`👍 on “${node.title}”`);
+
+  // Persist: local override + unsigned like receipt (and Admin API context when set)
+  if (id) {
+    persistThumbCount(id, node.thumbs);
+    if (cloudConfigured() && node.cloudId) {
+      publishThumb(node.cloudId, getDeviceId()).catch((err) =>
+        console.warn("thumb persist", err)
+      );
+      if (
+        adminApiConfigured() &&
+        Number.isFinite(node.lat) &&
+        Number.isFinite(node.lng)
+      ) {
+        updateSpotMeta(node.cloudId, {
+          title: node.title,
+          lat: node.lat,
+          lng: node.lng,
+          place: nearestPlaceInCache(placeCache, node.lat, node.lng, 1600) || "",
+          owner: node.owner || "",
+          takenAt: node.takenAt || "",
+          thumbs: node.thumbs,
+        }).catch((err) => console.warn("thumb context", err));
+      }
+    }
+  }
+}
+
+function updateTheaterCaption(node) {
+  if (!theaterTitle || !node) return;
+  const takenTitle = formatTakenLabel(node.takenAt);
+  theaterTitle.textContent = takenTitle
+    ? `${node.title} · ${takenTitle}`
+    : node.title;
+  syncTheaterThumbUI(node);
 }
 
 function roundRect(ctx, x, y, w, h, r) {
@@ -3815,11 +3914,7 @@ function openTheater(node, opts = {}) {
   pausePreviews(null);
   field.classList.add("is-watching");
   theater.hidden = false;
-  const takenTitle = formatTakenLabel(node.takenAt);
-  const baseTitle = node.thumbs
-    ? `${node.title} 👍${node.thumbs > 1 ? node.thumbs : ""}`
-    : node.title;
-  theaterTitle.textContent = takenTitle ? `${baseTitle} · ${takenTitle}` : baseTitle;
+  updateTheaterCaption(node);
 
   const isImage = node.kind === "image";
   theaterScreenWrap?.classList.toggle("is-image", isImage);
@@ -4456,12 +4551,21 @@ async function syncSharedSpots() {
 
   setAddMediaLoading(true);
   let rows = [];
+  let thumbCounts = {};
   try {
-    rows = await loadSpots();
+    [rows, thumbCounts] = await Promise.all([
+      loadSpots(),
+      loadThumbCounts().catch(() => ({})),
+    ]);
   } catch (err) {
     console.warn(err);
     setAddMediaLoading(false);
     return;
+  }
+
+  for (const row of rows) {
+    const fromReceipts = thumbCounts[row.id] || 0;
+    row.thumbs = Math.max(Number(row.thumbs) || 0, fromReceipts);
   }
 
   const origin = state.userGeo || state.originGeo;
@@ -4501,6 +4605,7 @@ async function syncSharedSpots() {
         cloudId: row.id,
         storagePath: row.video_path,
         owner: row.owner || "",
+        thumbs: Math.max(0, Number(row.thumbs) || 0),
       },
       state.nodes.length
     );
