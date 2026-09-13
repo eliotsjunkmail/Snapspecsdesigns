@@ -4688,8 +4688,16 @@ async function syncSharedSpots() {
   setAddMediaLoading(false);
 }
 
-function enterField() {
+function enterField(e) {
   if (state.booting || state.booted) return;
+  // Avoid a second synthetic click after touchend (would see booting=true and no-op).
+  if (e?.type === "touchend") {
+    try {
+      e.preventDefault();
+    } catch {
+      /* ignore */
+    }
+  }
   state.booting = true;
 
   // Safari drops the user-gesture if we disable the button or await
@@ -4706,25 +4714,34 @@ function enterField() {
       return false;
     });
 
-  if (enterBtn) enterBtn.textContent = "Opening…";
+  if (enterBtn) {
+    enterBtn.disabled = true;
+    enterBtn.textContent = "Opening…";
+  }
 
   (async () => {
     try {
       const motionOk = await Promise.race([
         motionP,
-        new Promise((resolve) => setTimeout(() => resolve(false), 4000)),
+        new Promise((resolve) => setTimeout(() => resolve(false), 2500)),
       ]);
-      const cameraOk = await cameraP;
+      // Never hang on camera — iOS can stall the permission prompt.
+      const cameraOk = await Promise.race([
+        cameraP,
+        new Promise((resolve) => setTimeout(() => resolve(false), 6500)),
+      ]);
       if (!motionOk) {
         setStatus("Allow motion access for world-locked AR", 4200);
       }
-      bootField(
-        cameraOk
-          ? motionOk
-            ? ""
-            : "Motion blocked — drag to look"
-          : "Camera blocked — drag to explore demo videos"
-      );
+      if (!state.booted) {
+        bootField(
+          cameraOk
+            ? motionOk
+              ? ""
+              : "Motion blocked — drag to look"
+            : "Camera blocked — drag to explore demo videos"
+        );
+      }
     } catch (err) {
       console.error(err);
       if (!state.booted) {
@@ -4740,15 +4757,14 @@ function enterField() {
   })();
 }
 
-enterBtn.addEventListener("click", enterField);
-enterBtn.addEventListener("pointerup", enterField);
-enterBtn.addEventListener("touchend", enterField, { passive: false });
+enterBtn?.addEventListener("click", enterField);
+enterBtn?.addEventListener("touchend", enterField, { passive: false });
 watchBtn?.addEventListener("click", () => {
   const node = resolveWatchNode();
   if (node) openTheater(node);
   else setStatus("Tap a clip to watch", 3200);
 });
-theaterClose.addEventListener("click", closeTheaterMode);
+theaterClose?.addEventListener("click", closeTheaterMode);
 theaterDone?.addEventListener("click", closeTheaterMode);
 theaterThumb?.addEventListener("click", (e) => {
   e.stopPropagation();
@@ -4756,14 +4772,14 @@ theaterThumb?.addEventListener("click", (e) => {
   if (!node) return;
   addThumbsUp(node);
 });
-theaterVideo.addEventListener("click", () => {
+theaterVideo?.addEventListener("click", () => {
   if (theaterVideo.paused) {
     theaterVideo.play().catch(() => {});
   } else if (theaterVideo.muted) {
     theaterVideo.muted = false;
   }
 });
-theaterVideo.addEventListener("loadedmetadata", () => {
+theaterVideo?.addEventListener("loadedmetadata", () => {
   const w = theaterVideo.videoWidth;
   const h = theaterVideo.videoHeight;
   if (w > 1 && h > 1) theaterVideo.style.aspectRatio = `${w} / ${h}`;
