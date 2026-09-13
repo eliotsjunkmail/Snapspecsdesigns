@@ -5620,9 +5620,26 @@ adminPassForm?.addEventListener("submit", (e) => {
   e.preventDefault();
   const value = String(adminPassInput?.value || "");
   if (value !== ADMIN_PASSWORD) {
-    if (adminPassError) adminPassError.hidden = false;
+    if (adminPassError) {
+      adminPassError.hidden = false;
+      adminPassError.textContent = "Wrong password";
+    }
     adminPassInput?.focus();
     return;
+  }
+  if (!adminApiConfigured()) {
+    const key = String(adminApiKey?.value || "").trim();
+    const secret = String(adminApiSecret?.value || "").trim();
+    if (!key || !secret) {
+      if (adminPassError) {
+        adminPassError.hidden = false;
+        adminPassError.textContent = "API key and secret are required to delete from Cloudinary";
+      }
+      if (adminApiFields) adminApiFields.hidden = false;
+      adminApiKey?.focus();
+      return;
+    }
+    setSessionAdminCredentials(key, secret);
   }
   state.adminUnlocked = true;
   closeAdminPassModal();
