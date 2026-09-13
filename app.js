@@ -711,7 +711,8 @@ async function populateAdminList() {
     rows = await loadSpots();
   } catch (err) {
     console.warn(err);
-    adminStatus.textContent = "Couldn’t load videos from Cloudinary.";
+    adminStatus.textContent =
+      "Couldn’t load videos. In Cloudinary → Settings → Security, enable Resource list, then refresh.";
     return;
   }
   if (!rows.length) {
