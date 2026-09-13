@@ -599,39 +599,43 @@ export function persistThumbCount(id, thumbs) {
   }
 }
 
-/** Permanently delete a video from Cloudinary (Admin API). */
+/** Remove a video from the app index; also destroy in Cloudinary when Admin API is set. */
 export async function adminDeleteSpot(id) {
   const publicId = String(id || "");
   if (!publicId) throw new Error("Missing video id");
+
   const creds = getAdminCredentials();
-  if (!CLOUDINARY_CLOUD_NAME || !creds) {
-    throw new Error("Add Cloudinary API key + secret to delete from the cloud");
-  }
-
-  const auth = btoa(`${creds.key}:${creds.secret}`);
-  const url = new URL(
-    `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/resources/video/upload`
-  );
-  url.searchParams.append("public_ids[]", publicId);
-  url.searchParams.set("invalidate", "true");
-
-  const res = await fetch(url.toString(), {
-    method: "DELETE",
-    headers: { Authorization: `Basic ${auth}` },
-  });
-  if (!res.ok) {
-    const detail = await res.json().catch(() => null);
-    throw new Error(
-      detail?.error?.message || `Cloud delete failed (${res.status})`
+  if (CLOUDINARY_CLOUD_NAME && creds) {
+    const auth = btoa(`${creds.key}:${creds.secret}`);
+    const url = new URL(
+      `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/resources/video/upload`
     );
+    url.searchParams.append("public_ids[]", publicId);
+    url.searchParams.set("invalidate", "true");
+
+    const res = await fetch(url.toString(), {
+      method: "DELETE",
+      headers: { Authorization: `Basic ${auth}` },
+    });
+    if (!res.ok) {
+      const detail = await res.json().catch(() => null);
+      throw new Error(
+        detail?.error?.message || `Cloud delete failed (${res.status})`
+      );
+    }
+    const data = await res.json().catch(() => ({}));
+    const deleted = data?.deleted?.[publicId];
+    if (deleted && deleted !== "deleted" && deleted !== "not_found") {
+      throw new Error(`Cloud delete status: ${deleted}`);
+    }
+    await removeSpotIndexEntry(publicId);
+    return { ...data, persisted: "cloud" };
   }
+
+  // No Admin API in config — drop from the shared index / local cache so it
+  // no longer appears in the app after refresh.
   await removeSpotIndexEntry(publicId);
-  const data = await res.json().catch(() => ({}));
-  const deleted = data?.deleted?.[publicId];
-  if (deleted && deleted !== "deleted" && deleted !== "not_found") {
-    throw new Error(`Cloud delete status: ${deleted}`);
-  }
-  return data;
+  return { id: publicId, persisted: "index" };
 }
 
 export async function deleteSpot(id, path, deleteToken) {

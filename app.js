@@ -10,7 +10,6 @@ import {
   adminDeleteSpot,
   updateSpotMeta,
   adminApiConfigured,
-  setSessionAdminCredentials,
   videoUrl,
   thumbUrl,
   posterUrl,
@@ -144,9 +143,6 @@ const adminPassInput = document.getElementById("admin-pass-input");
 const adminPassError = document.getElementById("admin-pass-error");
 const adminPassClose = document.getElementById("admin-pass-close");
 const adminPassCancel = document.getElementById("admin-pass-cancel");
-const adminApiFields = document.getElementById("admin-api-fields");
-const adminApiKey = document.getElementById("admin-api-key");
-const adminApiSecret = document.getElementById("admin-api-secret");
 const adminModal = document.getElementById("admin-modal");
 const adminClose = document.getElementById("admin-close");
 const adminList = document.getElementById("admin-list");
@@ -666,12 +662,6 @@ function openAdminPassModal() {
   closeAdminModal();
   if (adminPassError) adminPassError.hidden = true;
   if (adminPassInput) adminPassInput.value = "";
-  const needApi = !adminApiConfigured();
-  if (adminApiFields) adminApiFields.hidden = !needApi;
-  if (adminApiKey) adminApiKey.value = "";
-  if (adminApiSecret) adminApiSecret.value = "";
-  if (adminApiKey) adminApiKey.required = needApi;
-  if (adminApiSecret) adminApiSecret.required = needApi;
   adminPassModal.hidden = false;
   requestAnimationFrame(() => adminPassInput?.focus());
 }
@@ -752,9 +742,7 @@ async function populateAdminList() {
     adminStatus.textContent = "No uploaded videos yet.";
     return;
   }
-  adminStatus.textContent = adminApiConfigured()
-    ? `${rows.length} video${rows.length === 1 ? "" : "s"} · edits & delete sync to Cloudinary`
-    : `${rows.length} video${rows.length === 1 ? "" : "s"} · add API key/secret to delete from Cloudinary`;
+  adminStatus.textContent = `${rows.length} video${rows.length === 1 ? "" : "s"}`;
 
   for (const row of rows) {
     adminList.appendChild(buildAdminRow(row));
@@ -929,22 +917,17 @@ function buildAdminRow(row) {
 
   deleteBtnEl.addEventListener("click", async () => {
     const title = nameInput.value.trim() || row.title || "this video";
-    if (!adminApiConfigured()) {
-      note.textContent = "API key + secret required to delete from Cloudinary.";
-      openAdminPassModal();
-      return;
-    }
     if (!window.confirm(`Delete “${title}” from Cloudinary? This can’t be undone.`)) {
       return;
     }
     saveBtn.disabled = true;
     deleteBtnEl.disabled = true;
-    note.textContent = "Deleting from Cloudinary…";
+    note.textContent = "Deleting…";
     try {
       await adminDeleteSpot(row.id);
       forceRemoveCloudNode(row.id);
       wrap.remove();
-      setStatus(`Deleted “${title}” from Cloudinary`);
+      setStatus(`Deleted “${title}”`);
       if (adminList && !adminList.children.length) {
         if (adminStatus) adminStatus.textContent = "No uploaded videos yet.";
       }
@@ -5646,20 +5629,6 @@ adminPassForm?.addEventListener("submit", (e) => {
     }
     adminPassInput?.focus();
     return;
-  }
-  if (!adminApiConfigured()) {
-    const key = String(adminApiKey?.value || "").trim();
-    const secret = String(adminApiSecret?.value || "").trim();
-    if (!key || !secret) {
-      if (adminPassError) {
-        adminPassError.hidden = false;
-        adminPassError.textContent = "API key and secret are required to delete from Cloudinary";
-      }
-      if (adminApiFields) adminApiFields.hidden = false;
-      adminApiKey?.focus();
-      return;
-    }
-    setSessionAdminCredentials(key, secret);
   }
   state.adminUnlocked = true;
   closeAdminPassModal();
