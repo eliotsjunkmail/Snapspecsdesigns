@@ -104,7 +104,7 @@ function getDeviceId() {
   return id;
 }
 
-// Sample clips are off by default — the field starts from the phone library.
+// Sample clips are off by default — the field starts with shared Cloudinary pins.
 // To showcase clips for every visitor, add entries here (files in ./media):
 // { id, title, blurb, src: "./media/name.mp4", position: [x, y, z], demo: true }
 const CATALOG = [];
@@ -1443,9 +1443,9 @@ function setAddMediaLoading(on) {
     addBtn.disabled = state.mediaLoading;
     addBtn.setAttribute(
       "aria-label",
-      state.mediaLoading ? "Opening your videos" : "Add"
+      state.mediaLoading ? "Loading clips" : "Add"
     );
-    addBtn.title = state.mediaLoading ? "Opening your videos" : "Add";
+    addBtn.title = state.mediaLoading ? "Loading clips" : "Add";
   }
   if (fieldLoading) fieldLoading.hidden = !state.mediaLoading;
 }
@@ -4168,14 +4168,10 @@ function bootField(message) {
       setStatus("Enable location to pin videos within 25 ft", 4500);
     }
     setAddMediaLoading(false);
-    // Shared pins from Cloudinary when configured; otherwise phone library only.
-    if (cloudConfigured()) {
-      await syncSharedSpots();
-    }
+    // Load shared Cloudinary pins, then any pending local uploads.
+    await syncSharedSpots();
     if (state.nameQueue.length) {
       await processNameQueue();
-    } else if (!cloudConfigured() || viewClipNodes().length === 0) {
-      openLibraryPick();
     }
   })();
 }
@@ -4250,51 +4246,9 @@ async function syncSharedSpots() {
   setAddMediaLoading(false);
 }
 
-function enterField(e) {
-  if (state.booting || state.booted) return;
-  if (state.enterAfterLibraryPick) return;
-
-  // Open the system photo library with this tap's user gesture, then boot.
-  // (Browsers block file-picker clicks after await / permission prompts.)
-  if (!state.pendingUploads.length && !state.nameQueue.length) {
-    if (e?.type === "touchend") e.preventDefault();
-    const input = videoInputGate || videoInputField;
-    if (!input) {
-      beginEnterField();
-      return;
-    }
-    const token = ++state.libraryEnterToken;
-    state.enterAfterLibraryPick = true;
-    if (enterBtn) enterBtn.textContent = "Choose videos…";
-
-    const resumeWithoutPick = () => {
-      if (token !== state.libraryEnterToken || !state.enterAfterLibraryPick) return;
-      state.enterAfterLibraryPick = false;
-      beginEnterField();
-    };
-
-    const onFocus = () => {
-      window.removeEventListener("focus", onFocus);
-      document.removeEventListener("visibilitychange", onVis);
-      // change may fire just before focus — wait briefly
-      setTimeout(resumeWithoutPick, 450);
-    };
-    const onVis = () => {
-      if (document.visibilityState === "visible") onFocus();
-    };
-    window.addEventListener("focus", onFocus);
-    document.addEventListener("visibilitychange", onVis);
-    input.click();
-    return;
-  }
-
-  beginEnterField();
-}
-
-function beginEnterField() {
+function enterField() {
   if (state.booting || state.booted) return;
   state.booting = true;
-  state.enterAfterLibraryPick = false;
 
   // Safari drops the user-gesture if we disable the button or await
   // before getUserMedia / DeviceOrientation.requestPermission.
@@ -4396,8 +4350,8 @@ function updateUploadNote(count) {
   uploadNote.hidden = false;
   uploadNote.textContent =
     count === 1
-      ? "1 video selected — Open lens to place it"
-      : `${count} videos selected — Open lens to place them`;
+      ? "1 video selected — Open lens to name & pin it"
+      : `${count} videos selected — Open lens to name & pin them`;
 }
 
 // —— Content-aware default names (MobileNet, lazy-loaded) ——
@@ -5107,24 +5061,15 @@ async function processNameQueue() {
         ? new Date(file.lastModified).toISOString()
         : new Date().toISOString();
     }
-
-    let name;
-    if (source === "album") {
-      // Album picks go straight into the field — no rename / cloud upload step.
-      name = titleFromAlbumFile(file);
-      showUploadOverlay("Opening", `Placing “${name}”${batch}…`);
-    } else {
-      hideUploadOverlay();
-      name = await openNameModal(file, meta, source);
-      if (!name) continue;
-      showUploadOverlay(
-        cloudConfigured() ? "Uploading" : "Opening",
-        cloudConfigured()
-          ? `Sending “${name}”${batch}…`
-          : `Placing “${name}”${batch}…`
-      );
-    }
-
+    hideUploadOverlay();
+    const name = await openNameModal(file, meta, source);
+    if (!name) continue;
+    showUploadOverlay(
+      cloudConfigured() ? "Uploading" : "Opening",
+      cloudConfigured()
+        ? `Sending “${name}”${batch}…`
+        : `Placing “${name}”${batch}…`
+    );
     try {
       await placeNamedVideo(file, name, {
         lat: meta.lat,
@@ -5142,16 +5087,6 @@ async function processNameQueue() {
   updateUploadNote(state.nameQueue.length + state.pendingUploads.length);
 }
 
-function titleFromAlbumFile(file) {
-  const raw = String(file?.name || "Video")
-    .replace(/\.[^.]+$/, "")
-    .replace(/[_\-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!raw) return "Video";
-  return raw.charAt(0).toUpperCase() + raw.slice(1);
-}
-
 function isVideoFile(file) {
   if (file?.type?.startsWith("video/")) return true;
   return /\.(mp4|m4v|mov|qt|webm|mkv)$/i.test(file?.name || "");
@@ -5167,29 +5102,22 @@ function addUploadedFiles(fileList, source = "album") {
   const items = files.map((file) => ({ file, source }));
   closeLibraryPick();
 
-  // Warm the classifier so capture naming stays snappy when used
+  // Warm the classifier so the content-based name lands quickly
   loadVisionModel().catch(() => {});
-
-  const continueEnter = state.enterAfterLibraryPick && !state.booted;
-  if (continueEnter) {
-    state.enterAfterLibraryPick = false;
-    state.libraryEnterToken += 1;
-  }
 
   if (!state.booted || !scene) {
     state.pendingUploads.push(...items);
     updateUploadNote(state.pendingUploads.length);
     setStatus(
       files.length === 1
-        ? "Video selected — opening lens…"
-        : `${files.length} videos selected — opening lens…`
+        ? "Video selected — Open lens to name & pin"
+        : `${files.length} videos selected — Open lens to name & pin`
     );
-    if (continueEnter) beginEnterField();
     return files.length;
   }
 
   showUploadOverlay(
-    "Opening",
+    "Uploading",
     files.length === 1
       ? "Opening your video…"
       : `Preparing ${files.length} videos…`
