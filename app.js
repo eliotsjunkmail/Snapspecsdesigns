@@ -4687,6 +4687,12 @@ watchBtn?.addEventListener("click", () => {
 });
 theaterClose.addEventListener("click", closeTheaterMode);
 theaterDone?.addEventListener("click", closeTheaterMode);
+theaterThumb?.addEventListener("click", (e) => {
+  e.stopPropagation();
+  const node = state.watchingNode;
+  if (!node) return;
+  addThumbsUp(node);
+});
 theaterVideo.addEventListener("click", () => {
   if (theaterVideo.paused) {
     theaterVideo.play().catch(() => {});
