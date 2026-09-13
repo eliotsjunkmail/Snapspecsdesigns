@@ -111,12 +111,25 @@ export function photonReverseUrl(lat, lng) {
 export function townFromPhoton(data) {
   const p = data?.features?.[0]?.properties;
   if (!p || typeof p !== "object") return "";
+  return placeLabelFromPhotonProps(p);
+}
+
+/** City + state (US/CA) or city + country elsewhere — e.g. Westfield, NJ / Paris, France. */
+export function placeLabelFromPhotonProps(p) {
+  if (!p || typeof p !== "object") return "";
   const city = formatTownName(
     p.city || p.town || p.village || p.municipality || p.district || ""
   );
   if (!city) return "";
   const stateCode = regionCode(p.statecode || p.state);
-  return formatTownName(stateCode ? `${city}, ${stateCode}` : city);
+  const countrycode = String(p.countrycode || "").toUpperCase();
+  const country = String(p.country || "").trim();
+  if (countrycode === "US" || countrycode === "CA") {
+    return formatTownName(stateCode ? `${city}, ${stateCode}` : city);
+  }
+  if (country) return formatTownName(`${city}, ${country}`);
+  if (stateCode) return formatTownName(`${city}, ${stateCode}`);
+  return city;
 }
 
 export function townFromBigDataCloud(data) {
@@ -124,6 +137,14 @@ export function townFromBigDataCloud(data) {
   const city = formatTownName(data.city || data.locality || "");
   const stateCode =
     regionCode(data.principalSubdivisionCode) || data.principalSubdivision || "";
+  const country = data.countryName || "";
+  const countryCode = String(data.countryCode || "").toUpperCase();
+  if (city && stateCode && (countryCode === "US" || countryCode === "CA")) {
+    return formatTownName(`${city}, ${stateCode}`);
+  }
+  if (city && country && countryCode && countryCode !== "US" && countryCode !== "CA") {
+    return formatTownName(`${city}, ${country}`);
+  }
   return formatTownName(
     city && stateCode ? `${city}, ${stateCode}` : city || stateCode
   );
@@ -136,6 +157,14 @@ export function townFromNominatim(data) {
     a.city || a.town || a.village || a.hamlet || a.municipality || ""
   );
   const stateCode = regionCode(a["ISO3166-2-lvl4"]) || a.state || "";
+  const country = a.country || "";
+  const countryCode = String(a.country_code || "").toUpperCase();
+  if (city && stateCode && (countryCode === "US" || countryCode === "CA")) {
+    return formatTownName(`${city}, ${stateCode}`);
+  }
+  if (city && country && countryCode && countryCode !== "US" && countryCode !== "CA") {
+    return formatTownName(`${city}, ${country}`);
+  }
   return formatTownName(
     city && stateCode ? `${city}, ${stateCode}` : city || stateCode
   );
@@ -153,6 +182,44 @@ async function fetchJson(url, timeoutMs = 6000) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+export function photonSearchUrl(query, limit = 7) {
+  const q = String(query || "").trim();
+  return `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=${encodeURIComponent(
+    limit
+  )}&lang=en`;
+}
+
+/**
+ * Forward-geocode place typeahead (city/state/country).
+ * Returns [{ label, lat, lng }].
+ */
+export async function searchPlaces(query, limit = 7) {
+  const q = String(query || "").trim();
+  if (q.length < 2) return [];
+  const data = await fetchJson(photonSearchUrl(q, limit));
+  return placesFromPhotonSearch(data);
+}
+
+export function placesFromPhotonSearch(data) {
+  const out = [];
+  const seen = new Set();
+  for (const f of data?.features || []) {
+    const p = f?.properties;
+    const coords = f?.geometry?.coordinates;
+    if (!p || !Array.isArray(coords) || coords.length < 2) continue;
+    const lng = Number(coords[0]);
+    const lat = Number(coords[1]);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+    const label = placeLabelFromPhotonProps(p);
+    if (!label) continue;
+    const key = `${label}|${lat.toFixed(3)}|${lng.toFixed(3)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ label, lat, lng });
+  }
+  return out;
 }
 
 /**

@@ -392,6 +392,131 @@ button {
   gap: 0.35rem;
 }
 
+.admin-open-btn {
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.admin-pass-panel,
+.admin-panel {
+  position: relative;
+  max-height: min(88dvh, 44rem);
+  overflow: auto;
+}
+
+.admin-list {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.admin-row {
+  display: grid;
+  grid-template-columns: 3.4rem 1fr;
+  gap: 0.7rem;
+  padding: 0.75rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.admin-thumb {
+  width: 3.4rem;
+  height: 3.4rem;
+  object-fit: cover;
+  border-radius: 3px;
+  background: #111;
+}
+
+.admin-row-fields {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.admin-row-fields label {
+  display: grid;
+  gap: 0.2rem;
+  margin: 0;
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.admin-row-fields .name-input {
+  width: 100%;
+  min-height: 2.2rem;
+  font-size: 0.92rem;
+}
+
+.admin-place-wrap {
+  position: relative;
+}
+
+.admin-suggest {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 2px);
+  z-index: 5;
+  display: grid;
+  margin: 0;
+  padding: 0.2rem 0;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: rgba(8, 10, 12, 0.96);
+  max-height: 10rem;
+  overflow: auto;
+}
+
+.admin-suggest[hidden] {
+  display: none !important;
+}
+
+.admin-suggest button {
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  border: 0;
+  background: transparent;
+  color: var(--foam);
+  text-align: left;
+  font-size: 0.88rem;
+}
+
+.admin-suggest button:hover,
+.admin-suggest button:focus {
+  background: rgba(158, 196, 200, 0.16);
+}
+
+.admin-row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.admin-save-btn {
+  min-height: 2rem;
+  padding: 0 0.85rem;
+  border-radius: 999px;
+  border: 0;
+  background: #fff;
+  color: #000;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.admin-save-btn:disabled {
+  opacity: 0.55;
+}
+
+.admin-row-note {
+  margin: 0;
+  font-size: 0.72rem;
+  color: rgba(255, 255, 255, 0.55);
+}
+
 .range-sheet-label {
   display: block;
   margin: 0;

@@ -4,6 +4,8 @@ import {
   loadSpots,
   publishSpot,
   deleteSpot,
+  updateSpotMeta,
+  adminApiConfigured,
   videoUrl,
   thumbUrl,
   posterUrl,
@@ -15,6 +17,7 @@ import {
   nearestCachedPlace as nearestPlaceInCache,
   placeCacheKey,
   fetchTownName,
+  searchPlaces,
 } from "./place-geo.js";
 import {
   carouselDragLiftDelta,
@@ -129,6 +132,17 @@ const createSettingOnBtn = document.getElementById("create-setting-on");
 const settingsBtn = document.getElementById("settings-btn");
 const settingsModal = document.getElementById("settings-modal");
 const settingsClose = document.getElementById("settings-close");
+const adminOpenBtn = document.getElementById("admin-open-btn");
+const adminPassModal = document.getElementById("admin-pass-modal");
+const adminPassForm = document.getElementById("admin-pass-form");
+const adminPassInput = document.getElementById("admin-pass-input");
+const adminPassError = document.getElementById("admin-pass-error");
+const adminPassClose = document.getElementById("admin-pass-close");
+const adminPassCancel = document.getElementById("admin-pass-cancel");
+const adminModal = document.getElementById("admin-modal");
+const adminClose = document.getElementById("admin-close");
+const adminList = document.getElementById("admin-list");
+const adminStatus = document.getElementById("admin-status");
 const focusLabel = document.getElementById("focus-label");
 const townSelect = document.getElementById("town-select");
 const townSlot = document.querySelector(".town-slot");
@@ -209,6 +223,8 @@ const state = {
   naming: false,
   enterAfterLibraryPick: false,
   libraryEnterToken: 0,
+  adminUnlocked: false,
+  adminSuggestTimers: new Map(),
   uploadCount: 0,
   originGeo: null,
   userGeo: null,
@@ -611,6 +627,8 @@ function openSettingsModal() {
   if (state.watching || state.naming) return;
   closeAddModal();
   closeCreateModal(true);
+  closeAdminPassModal();
+  closeAdminModal();
   state.settingsOpen = true;
   settingsModal.hidden = false;
   settingsBtn?.setAttribute("aria-expanded", "true");
@@ -622,8 +640,259 @@ function closeSettingsModal() {
   settingsBtn?.setAttribute("aria-expanded", "false");
 }
 
+const ADMIN_PASSWORD = "eliot";
+
+function closeAdminPassModal() {
+  if (adminPassModal) adminPassModal.hidden = true;
+  if (adminPassError) adminPassError.hidden = true;
+  if (adminPassInput) adminPassInput.value = "";
+}
+
+function openAdminPassModal() {
+  if (!adminPassModal) return;
+  closeSettingsModal();
+  closeAddModal();
+  closeCreateModal(true);
+  closeAdminModal();
+  if (adminPassError) adminPassError.hidden = true;
+  if (adminPassInput) adminPassInput.value = "";
+  adminPassModal.hidden = false;
+  requestAnimationFrame(() => adminPassInput?.focus());
+}
+
+function closeAdminModal() {
+  if (adminModal) adminModal.hidden = true;
+  if (adminList) adminList.innerHTML = "";
+  state.adminSuggestTimers.forEach((t) => clearTimeout(t));
+  state.adminSuggestTimers.clear();
+}
+
+function openAdminModal() {
+  if (!adminModal) return;
+  closeSettingsModal();
+  closeAdminPassModal();
+  closeAddModal();
+  closeCreateModal(true);
+  adminModal.hidden = false;
+  populateAdminList();
+}
+
+function applyAdminEditToField(id, { title, lat, lng, place }) {
+  const node = state.nodes.find((n) => n.cloudId === id || n.id === `spot-${id}`);
+  if (!node) return;
+  if (title) {
+    node.title = title;
+    refreshNodeChrome(node);
+  }
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    node.lat = lat;
+    node.lng = lng;
+    if (place) {
+      placeCache.set(placeCacheKey(lat, lng), formatTownName(place));
+    }
+    updateGeoAnchors();
+  }
+  if (state.mapOpen) {
+    refreshMapList();
+    syncLeafletMarkers();
+  }
+}
+
+async function populateAdminList() {
+  if (!adminList || !adminStatus) return;
+  adminList.innerHTML = "";
+  if (!cloudConfigured()) {
+    adminStatus.textContent = "Cloudinary is not configured.";
+    return;
+  }
+  adminStatus.textContent = "Loading uploaded videos…";
+  let rows = [];
+  try {
+    rows = await loadSpots();
+  } catch (err) {
+    console.warn(err);
+    adminStatus.textContent = "Couldn’t load videos from Cloudinary.";
+    return;
+  }
+  if (!rows.length) {
+    adminStatus.textContent = "No uploaded videos yet.";
+    return;
+  }
+  adminStatus.textContent = adminApiConfigured()
+    ? `${rows.length} video${rows.length === 1 ? "" : "s"} · edits sync to Cloudinary`
+    : `${rows.length} video${rows.length === 1 ? "" : "s"} · edits save on this device`;
+
+  for (const row of rows) {
+    adminList.appendChild(buildAdminRow(row));
+  }
+
+  // Fill missing place labels via reverse geocode
+  for (const row of rows) {
+    if (row.place) continue;
+    const el = adminList.querySelector(
+      `[data-admin-id="${String(row.id).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"]`
+    );
+    const placeInput = el?.querySelector(".admin-place-input");
+    if (!placeInput) continue;
+    fetchTownName(row.lat, row.lng)
+      .then((place) => {
+        if (!place || placeInput.dataset.picked === "1") return;
+        if (placeInput.value.trim()) return;
+        placeInput.value = place;
+        placeInput.dataset.lat = String(row.lat);
+        placeInput.dataset.lng = String(row.lng);
+      })
+      .catch(() => {});
+  }
+}
+
+function buildAdminRow(row) {
+  const wrap = document.createElement("article");
+  wrap.className = "admin-row";
+  wrap.dataset.adminId = row.id;
+
+  const thumb = document.createElement("img");
+  thumb.className = "admin-thumb";
+  thumb.alt = "";
+  thumb.loading = "lazy";
+  thumb.src = thumbUrl(row.video_path);
+
+  const fields = document.createElement("div");
+  fields.className = "admin-row-fields";
+
+  const nameLabel = document.createElement("label");
+  nameLabel.textContent = "Name";
+  const nameInput = document.createElement("input");
+  nameInput.className = "name-input admin-name-input";
+  nameInput.type = "text";
+  nameInput.maxLength = 80;
+  nameInput.value = row.title || "";
+  nameInput.autocomplete = "off";
+  nameLabel.appendChild(nameInput);
+
+  const placeLabel = document.createElement("label");
+  placeLabel.textContent = "City, state / country";
+  const placeWrap = document.createElement("div");
+  placeWrap.className = "admin-place-wrap";
+  const placeInput = document.createElement("input");
+  placeInput.className = "name-input admin-place-input";
+  placeInput.type = "text";
+  placeInput.placeholder = "e.g. Westfield, NJ or Paris, France";
+  placeInput.autocomplete = "off";
+  placeInput.value = row.place || "";
+  placeInput.dataset.lat = String(row.lat);
+  placeInput.dataset.lng = String(row.lng);
+  if (row.place) placeInput.dataset.picked = "1";
+  const suggest = document.createElement("ul");
+  suggest.className = "admin-suggest";
+  suggest.hidden = true;
+  placeWrap.append(placeInput, suggest);
+  placeLabel.appendChild(placeWrap);
+
+  const actions = document.createElement("div");
+  actions.className = "admin-row-actions";
+  const saveBtn = document.createElement("button");
+  saveBtn.type = "button";
+  saveBtn.className = "admin-save-btn";
+  saveBtn.textContent = "Save";
+  const note = document.createElement("p");
+  note.className = "admin-row-note";
+  note.textContent = "";
+  actions.append(saveBtn);
+
+  fields.append(nameLabel, placeLabel, actions, note);
+  wrap.append(thumb, fields);
+
+  placeInput.addEventListener("input", () => {
+    placeInput.dataset.picked = "0";
+    note.textContent = "";
+    const q = placeInput.value.trim();
+    const prev = state.adminSuggestTimers.get(row.id);
+    if (prev) clearTimeout(prev);
+    if (q.length < 2) {
+      suggest.hidden = true;
+      suggest.innerHTML = "";
+      return;
+    }
+    const timer = setTimeout(async () => {
+      const hits = await searchPlaces(q, 7);
+      suggest.innerHTML = "";
+      if (!hits.length) {
+        suggest.hidden = true;
+        return;
+      }
+      for (const hit of hits) {
+        const li = document.createElement("li");
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.textContent = hit.label;
+        btn.addEventListener("click", () => {
+          placeInput.value = hit.label;
+          placeInput.dataset.lat = String(hit.lat);
+          placeInput.dataset.lng = String(hit.lng);
+          placeInput.dataset.picked = "1";
+          suggest.hidden = true;
+          suggest.innerHTML = "";
+          note.textContent = "";
+        });
+        li.appendChild(btn);
+        suggest.appendChild(li);
+      }
+      suggest.hidden = false;
+    }, 220);
+    state.adminSuggestTimers.set(row.id, timer);
+  });
+
+  placeInput.addEventListener("blur", () => {
+    setTimeout(() => {
+      suggest.hidden = true;
+    }, 180);
+  });
+
+  saveBtn.addEventListener("click", async () => {
+    const title = nameInput.value.trim() || "Shared clip";
+    const place = placeInput.value.trim();
+    const lat = Number.parseFloat(placeInput.dataset.lat);
+    const lng = Number.parseFloat(placeInput.dataset.lng);
+    if (!place || !Number.isFinite(lat) || !Number.isFinite(lng) || placeInput.dataset.picked === "0") {
+      note.textContent = "Pick a place from the suggestions.";
+      placeInput.focus();
+      return;
+    }
+    saveBtn.disabled = true;
+    note.textContent = "Saving…";
+    try {
+      const res = await updateSpotMeta(row.id, {
+        title,
+        lat,
+        lng,
+        place,
+        owner: row.owner || "",
+        takenAt: row.takenAt || "",
+      });
+      applyAdminEditToField(row.id, res);
+      row.title = res.title;
+      row.lat = res.lat;
+      row.lng = res.lng;
+      row.place = res.place;
+      note.textContent =
+        res.persisted === "cloud" ? "Saved to Cloudinary" : "Saved on this device";
+      setStatus(`Updated “${res.title}”`);
+    } catch (err) {
+      console.warn(err);
+      note.textContent = err?.message || "Save failed";
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
+
+  return wrap;
+}
+
 function closeFilterSheets() {
   closeSettingsModal();
+  closeAdminPassModal();
+  closeAdminModal();
 }
 
 function clampTimeYr(value) {
@@ -4210,6 +4479,9 @@ async function syncSharedSpots() {
     }
 
     const isOwner = Boolean(row.owner) && row.owner === getDeviceId();
+    if (row.place) {
+      placeCache.set(placeCacheKey(row.lat, row.lng), formatTownName(row.place));
+    }
     const node = createNode(
       {
         id: nodeId,
@@ -5157,6 +5429,32 @@ settingsBtn?.addEventListener("click", (e) => {
 settingsClose?.addEventListener("click", closeSettingsModal);
 settingsModal?.addEventListener("click", (e) => {
   if (e.target === settingsModal) closeSettingsModal();
+});
+adminOpenBtn?.addEventListener("click", (e) => {
+  e.stopPropagation();
+  if (state.adminUnlocked) openAdminModal();
+  else openAdminPassModal();
+});
+adminPassClose?.addEventListener("click", closeAdminPassModal);
+adminPassCancel?.addEventListener("click", closeAdminPassModal);
+adminPassModal?.addEventListener("click", (e) => {
+  if (e.target === adminPassModal) closeAdminPassModal();
+});
+adminPassForm?.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const value = String(adminPassInput?.value || "");
+  if (value !== ADMIN_PASSWORD) {
+    if (adminPassError) adminPassError.hidden = false;
+    adminPassInput?.focus();
+    return;
+  }
+  state.adminUnlocked = true;
+  closeAdminPassModal();
+  openAdminModal();
+});
+adminClose?.addEventListener("click", closeAdminModal);
+adminModal?.addEventListener("click", (e) => {
+  if (e.target === adminModal) closeAdminModal();
 });
 rangeSlider?.addEventListener("input", () => {
   setCameraRangeFt(ftFromSliderPos(rangeSlider.value));

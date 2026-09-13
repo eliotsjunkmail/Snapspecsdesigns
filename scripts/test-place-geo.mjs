@@ -3,6 +3,9 @@ import {
   nearestCachedPlace,
   placeCacheKey,
   photonReverseUrl,
+  photonSearchUrl,
+  placeLabelFromPhotonProps,
+  placesFromPhotonSearch,
   regionCode,
   townFromBigDataCloud,
   townFromNominatim,
@@ -77,6 +80,39 @@ if (townFromPhoton({
   features: [{ properties: { name: "North Euclid Avenue", countrycode: "US" } }],
 }) !== "") {
   throw new Error("Photon must not use a street name as the town");
+}
+if (townFromPhoton({
+  features: [{
+    properties: {
+      city: "Paris",
+      country: "France",
+      countrycode: "FR",
+    },
+  }],
+}) !== "Paris, France") {
+  throw new Error("Photon Paris should use country");
+}
+if (placeLabelFromPhotonProps({
+  city: "Westfield",
+  state: "New Jersey",
+  countrycode: "US",
+}) !== "Westfield, NJ") {
+  throw new Error("placeLabel Westfield");
+}
+const searchHits = placesFromPhotonSearch({
+  features: [
+    {
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [2.3522, 48.8566] },
+      properties: { city: "Paris", country: "France", countrycode: "FR" },
+    },
+  ],
+});
+if (searchHits[0]?.label !== "Paris, France") {
+  throw new Error("Photon search Paris label");
+}
+if (!photonSearchUrl("Westfield").includes("q=Westfield")) {
+  throw new Error("photon search url should include query");
 }
 if (townFromBigDataCloud(null) !== "") throw new Error("empty geocode");
 if (!photonReverseUrl(40.6568, -74.3465).includes("lon=-74.3465")) {

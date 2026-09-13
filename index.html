@@ -19,7 +19,7 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=168" />
+    <link rel="stylesheet" href="styles.css?v=169" />
   </head>
   <body>
     <div id="app">
@@ -399,6 +399,70 @@
               </button>
             </div>
           </section>
+
+          <section class="settings-block">
+            <p class="range-sheet-label">Admin</p>
+            <button type="button" id="admin-open-btn" class="layout-choice admin-open-btn">
+              Admin
+            </button>
+          </section>
+        </div>
+      </div>
+
+      <div id="admin-pass-modal" class="name-modal" hidden>
+        <form
+          id="admin-pass-form"
+          class="name-panel admin-pass-panel"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="admin-pass-title"
+        >
+          <button
+            type="button"
+            id="admin-pass-close"
+            class="sheet-close"
+            aria-label="Close"
+          >
+            ×
+          </button>
+          <p class="name-brand">SnapBack</p>
+          <h2 class="name-title" id="admin-pass-title">Admin</h2>
+          <p class="name-file">Enter the admin password to edit uploaded videos.</p>
+          <input
+            id="admin-pass-input"
+            class="name-input"
+            type="password"
+            autocomplete="current-password"
+            placeholder="Password"
+            required
+          />
+          <p class="name-hint" id="admin-pass-error" hidden>Wrong password</p>
+          <div class="name-actions">
+            <button type="button" id="admin-pass-cancel" class="ghost-btn">Cancel</button>
+            <button type="submit" class="cta name-submit">Continue</button>
+          </div>
+        </form>
+      </div>
+
+      <div id="admin-modal" class="name-modal" hidden>
+        <div
+          class="name-panel admin-panel"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="admin-title"
+        >
+          <button
+            type="button"
+            id="admin-close"
+            class="sheet-close"
+            aria-label="Close"
+          >
+            ×
+          </button>
+          <p class="name-brand">SnapBack</p>
+          <h2 class="name-title" id="admin-title">Uploaded videos</h2>
+          <p class="name-file" id="admin-status">Loading…</p>
+          <div id="admin-list" class="admin-list"></div>
         </div>
       </div>
 
@@ -492,6 +556,6 @@
       }
     </script>
     <script src="https://js.puter.com/v2/"></script>
-    <script type="module" src="app.js?v=168"></script>
+    <script type="module" src="app.js?v=169"></script>
   </body>
 </html>
