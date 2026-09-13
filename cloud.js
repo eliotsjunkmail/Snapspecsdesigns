@@ -1,6 +1,8 @@
 // Shared-world sync via Cloudinary unsigned uploads.
 // Videos are tagged, pin metadata (title/GPS/owner/place) rides in the context
-// field, and visitors load everything through the public list-by-tag JSON.
+// field. When Cloudinary "Resource list" is disabled (common on free plans),
+// we also maintain a public raw JSON index + a localStorage cache so clips
+// survive refresh without the restricted /list/ API.
 import {
   CLOUDINARY_CLOUD_NAME,
   CLOUDINARY_UPLOAD_PRESET,
@@ -10,7 +12,9 @@ import {
 } from "./config.js";
 
 const TAG = "lumen-spot";
+const INDEX_ID = "lumen-spots-index";
 const OVERRIDE_KEY = "lumen-admin-spot-overrides";
+const LOCAL_SPOTS_KEY = "lumen-spots-cache";
 const ADMIN_CREDS_KEY = "lumen-admin-cloud-creds";
 
 export function cloudConfigured() {
@@ -104,6 +108,50 @@ export function clearSpotOverride(id) {
   writeOverrides(all);
 }
 
+function readLocalSpotCache() {
+  try {
+    const raw = localStorage.getItem(LOCAL_SPOTS_KEY);
+    const data = raw ? JSON.parse(raw) : {};
+    return data && typeof data === "object" ? data : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeLocalSpotCache(map) {
+  try {
+    localStorage.setItem(LOCAL_SPOTS_KEY, JSON.stringify(map || {}));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function cacheSpotLocally(spot) {
+  if (!spot?.id) return;
+  const all = readLocalSpotCache();
+  all[spot.id] = {
+    id: spot.id,
+    title: spot.title || "Shared clip",
+    lat: spot.lat,
+    lng: spot.lng,
+    place: spot.place || "",
+    owner: spot.owner || "",
+    takenAt: spot.takenAt || null,
+    thumbs: Math.max(0, Number(spot.thumbs) || 0),
+    video_path: spot.video_path || spot.path || "",
+  };
+  writeLocalSpotCache(all);
+}
+
+export function removeCachedSpot(id) {
+  const key = String(id || "");
+  if (!key) return;
+  const all = readLocalSpotCache();
+  if (!all[key]) return;
+  delete all[key];
+  writeLocalSpotCache(all);
+}
+
 function applyOverride(spot) {
   const o = readOverrides()[spot.id];
   if (!o) return spot;
@@ -121,34 +169,196 @@ function applyOverride(spot) {
   };
 }
 
-export async function loadSpots() {
-  // Cache-buster: the list JSON is CDN-cached, keep pins reasonably fresh
+function normalizeSpot(spot) {
+  if (!spot?.id) return null;
+  const out = applyOverride({
+    id: String(spot.id),
+    title: spot.title || "Shared clip",
+    lat: Number.parseFloat(spot.lat),
+    lng: Number.parseFloat(spot.lng),
+    place: spot.place || "",
+    owner: spot.owner || "",
+    takenAt: parseTakenAt(spot.takenAt),
+    thumbs: Math.max(0, Number.parseInt(spot.thumbs, 10) || 0),
+    video_path: spot.video_path || spot.path || "",
+  });
+  if (!Number.isFinite(out.lat) || !Number.isFinite(out.lng) || !out.video_path) {
+    return null;
+  }
+  return out;
+}
+
+function mergeSpotLists(...lists) {
+  const map = new Map();
+  for (const list of lists) {
+    for (const raw of list || []) {
+      const spot = normalizeSpot(raw);
+      if (!spot) continue;
+      const prev = map.get(spot.id);
+      map.set(spot.id, prev ? { ...prev, ...spot } : spot);
+    }
+  }
+  return [...map.values()];
+}
+
+async function loadSpotsFromTagList() {
   const res = await fetch(
     `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/video/list/${TAG}.json?t=${Math.floor(
       Date.now() / 30000
     )}`
   );
-  if (res.status === 404) return []; // no shared clips yet
-  if (!res.ok) throw new Error(`Loading shared pins failed (${res.status})`);
+  if (res.status === 404) return [];
+  if (!res.ok) {
+    throw new Error(`Loading shared pins failed (${res.status})`);
+  }
   const data = await res.json();
+  return (data.resources || []).map((r) => {
+    const ctx = r.context?.custom || {};
+    return {
+      id: r.public_id,
+      title: ctx.title || "Shared clip",
+      lat: Number.parseFloat(ctx.lat),
+      lng: Number.parseFloat(ctx.lng),
+      place: ctx.place || "",
+      owner: ctx.owner || "",
+      takenAt: parseTakenAt(ctx.taken),
+      thumbs: Math.max(0, Number.parseInt(ctx.thumbs, 10) || 0),
+      video_path: `v${r.version}/${r.public_id}.${r.format || "mp4"}`,
+    };
+  });
+}
 
-  return (data.resources || [])
-    .map((r) => {
-      const ctx = r.context?.custom || {};
-      const spot = {
-        id: r.public_id,
-        title: ctx.title || "Shared clip",
-        lat: Number.parseFloat(ctx.lat),
-        lng: Number.parseFloat(ctx.lng),
-        place: ctx.place || "",
-        owner: ctx.owner || "",
-        takenAt: parseTakenAt(ctx.taken),
-        thumbs: Math.max(0, Number.parseInt(ctx.thumbs, 10) || 0),
-        video_path: `v${r.version}/${r.public_id}.${r.format || "mp4"}`,
-      };
-      return applyOverride(spot);
-    })
-    .filter((s) => Number.isFinite(s.lat) && Number.isFinite(s.lng));
+function indexDeliveryUrls() {
+  const bust = `t=${Math.floor(Date.now() / 15000)}`;
+  return [
+    `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/raw/upload/${INDEX_ID}.json?${bust}`,
+    `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/raw/upload/${INDEX_ID}?${bust}`,
+  ];
+}
+
+async function loadSpotsFromIndexFile() {
+  for (const url of indexDeliveryUrls()) {
+    try {
+      const res = await fetch(url);
+      if (res.status === 404) continue;
+      if (!res.ok) continue;
+      const data = await res.json();
+      const spots = Array.isArray(data) ? data : data?.spots;
+      if (Array.isArray(spots)) return spots;
+    } catch {
+      /* try next url */
+    }
+  }
+  return [];
+}
+
+async function uploadSpotsIndex(spots) {
+  if (!isCloudConfigured()) return false;
+  const payload = JSON.stringify({
+    updatedAt: new Date().toISOString(),
+    spots: (spots || []).map((s) => ({
+      id: s.id,
+      title: s.title,
+      lat: s.lat,
+      lng: s.lng,
+      place: s.place || "",
+      owner: s.owner || "",
+      takenAt: s.takenAt || null,
+      thumbs: Math.max(0, Number(s.thumbs) || 0),
+      video_path: s.video_path,
+    })),
+  });
+  const form = new FormData();
+  form.append(
+    "file",
+    new Blob([payload], { type: "application/json" }),
+    `${INDEX_ID}.json`
+  );
+  form.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+  form.append("public_id", INDEX_ID);
+  // Best-effort; unsigned presets may ignore overwrite unless enabled.
+  form.append("overwrite", "true");
+  form.append("invalidate", "true");
+
+  const res = await fetch(
+    `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/raw/upload`,
+    { method: "POST", body: form }
+  );
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    console.warn(
+      "spot index upload failed",
+      detail?.error?.message || res.status
+    );
+    return false;
+  }
+  return true;
+}
+
+export async function upsertSpotIndexEntry(entry) {
+  const spot = normalizeSpot(entry);
+  if (!spot) return;
+  cacheSpotLocally(spot);
+  let spots = [];
+  try {
+    spots = await loadSpotsFromIndexFile();
+  } catch {
+    spots = [];
+  }
+  const local = Object.values(readLocalSpotCache());
+  spots = mergeSpotLists(spots, local, [spot]);
+  writeLocalSpotCache(
+    Object.fromEntries(spots.map((s) => [s.id, s]))
+  );
+  await uploadSpotsIndex(spots).catch((err) => console.warn(err));
+}
+
+export async function removeSpotIndexEntry(id) {
+  const key = String(id || "");
+  if (!key) return;
+  removeCachedSpot(key);
+  clearSpotOverride(key);
+  let spots = [];
+  try {
+    spots = await loadSpotsFromIndexFile();
+  } catch {
+    spots = [];
+  }
+  const local = Object.values(readLocalSpotCache());
+  spots = mergeSpotLists(spots, local).filter((s) => s.id !== key);
+  writeLocalSpotCache(
+    Object.fromEntries(spots.map((s) => [s.id, s]))
+  );
+  await uploadSpotsIndex(spots).catch((err) => console.warn(err));
+}
+
+export async function loadSpots() {
+  let fromList = [];
+  let listError = null;
+  try {
+    fromList = await loadSpotsFromTagList();
+  } catch (err) {
+    listError = err;
+    console.warn(err);
+  }
+
+  let fromIndex = [];
+  try {
+    fromIndex = await loadSpotsFromIndexFile();
+  } catch (err) {
+    console.warn(err);
+  }
+
+  const fromLocal = Object.values(readLocalSpotCache());
+  const merged = mergeSpotLists(fromLocal, fromIndex, fromList);
+
+  // Keep local cache warm for the next refresh even if cloud list stays blocked.
+  if (merged.length) {
+    writeLocalSpotCache(Object.fromEntries(merged.map((s) => [s.id, s])));
+  }
+
+  if (!merged.length && listError) throw listError;
+  return merged;
 }
 
 function parseTakenAt(value) {
@@ -208,7 +418,7 @@ export async function publishSpot(file, { title, lat, lng, owner, takenAt, place
     );
   }
   const data = await res.json();
-  return {
+  const published = {
     id: data.public_id,
     path: `v${data.version}/${data.public_id}.${data.format || "mp4"}`,
     url: data.secure_url,
@@ -216,6 +426,21 @@ export async function publishSpot(file, { title, lat, lng, owner, takenAt, place
     // allows undoing an upload for ~10 minutes without any API secret
     deleteToken: data.delete_token || null,
   };
+
+  // Persist for refresh even when /video/list is restricted on this cloud.
+  await upsertSpotIndexEntry({
+    id: published.id,
+    title,
+    lat,
+    lng,
+    place: place || "",
+    owner: owner || "",
+    takenAt: takenAt || null,
+    thumbs: 0,
+    video_path: published.path,
+  });
+
+  return published;
 }
 
 /**
@@ -241,6 +466,20 @@ export async function updateSpotMeta(
   };
   if (thumbs != null) patch.thumbs = Math.max(0, Number.parseInt(thumbs, 10) || 0);
   saveSpotOverride(publicId, patch);
+
+  const cached = readLocalSpotCache()[publicId] || {};
+  await upsertSpotIndexEntry({
+    ...cached,
+    id: publicId,
+    title: patch.title,
+    lat: patch.lat,
+    lng: patch.lng,
+    place: patch.place,
+    owner: owner || cached.owner || "",
+    takenAt: takenAt || cached.takenAt || null,
+    thumbs: patch.thumbs != null ? patch.thumbs : cached.thumbs || 0,
+    video_path: cached.video_path || "",
+  });
 
   if (!adminApiConfigured()) {
     return { ...patch, id: publicId, persisted: "local" };
@@ -352,9 +591,12 @@ export async function loadThumbCounts() {
 export function persistThumbCount(id, thumbs) {
   const publicId = String(id || "");
   if (!publicId) return;
-  saveSpotOverride(publicId, {
-    thumbs: Math.max(0, Number.parseInt(thumbs, 10) || 0),
-  });
+  const next = Math.max(0, Number.parseInt(thumbs, 10) || 0);
+  saveSpotOverride(publicId, { thumbs: next });
+  const cached = readLocalSpotCache()[publicId];
+  if (cached) {
+    cacheSpotLocally({ ...cached, thumbs: next });
+  }
 }
 
 /** Permanently delete a video from Cloudinary (Admin API). */
@@ -383,7 +625,7 @@ export async function adminDeleteSpot(id) {
       detail?.error?.message || `Cloud delete failed (${res.status})`
     );
   }
-  clearSpotOverride(publicId);
+  await removeSpotIndexEntry(publicId);
   const data = await res.json().catch(() => ({}));
   const deleted = data?.deleted?.[publicId];
   if (deleted && deleted !== "deleted" && deleted !== "not_found") {
@@ -403,4 +645,5 @@ export async function deleteSpot(id, path, deleteToken) {
     { method: "POST", body: form }
   );
   if (!res.ok) throw new Error(`Cloud delete failed (${res.status})`);
+  await removeSpotIndexEntry(id);
 }
