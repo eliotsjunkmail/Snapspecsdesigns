@@ -11,15 +11,40 @@ import {
 
 const TAG = "lumen-spot";
 const OVERRIDE_KEY = "lumen-admin-spot-overrides";
+const ADMIN_CREDS_KEY = "lumen-admin-cloud-creds";
 
 export function cloudConfigured() {
   return isCloudConfigured();
 }
 
+export function getAdminCredentials() {
+  if (CLOUDINARY_API_KEY && CLOUDINARY_API_SECRET) {
+    return { key: CLOUDINARY_API_KEY, secret: CLOUDINARY_API_SECRET };
+  }
+  try {
+    const raw = sessionStorage.getItem(ADMIN_CREDS_KEY);
+    const data = raw ? JSON.parse(raw) : null;
+    if (data?.key && data?.secret) return { key: data.key, secret: data.secret };
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+export function setSessionAdminCredentials(key, secret) {
+  const k = String(key || "").trim();
+  const s = String(secret || "").trim();
+  if (!k || !s) return false;
+  try {
+    sessionStorage.setItem(ADMIN_CREDS_KEY, JSON.stringify({ key: k, secret: s }));
+  } catch {
+    /* ignore */
+  }
+  return true;
+}
+
 export function adminApiConfigured() {
-  return Boolean(
-    CLOUDINARY_CLOUD_NAME && CLOUDINARY_API_KEY && CLOUDINARY_API_SECRET
-  );
+  return Boolean(CLOUDINARY_CLOUD_NAME && getAdminCredentials());
 }
 
 export function deliveryVideoPath(path) {
@@ -67,6 +92,15 @@ export function saveSpotOverride(id, patch) {
   if (!key) return;
   const all = readOverrides();
   all[key] = { ...(all[key] || {}), ...patch, id: key };
+  writeOverrides(all);
+}
+
+export function clearSpotOverride(id) {
+  const key = String(id || "");
+  if (!key) return;
+  const all = readOverrides();
+  if (!all[key]) return;
+  delete all[key];
   writeOverrides(all);
 }
 
@@ -212,7 +246,8 @@ export async function updateSpotMeta(
     return { ...patch, id: publicId, persisted: "local" };
   }
 
-  const auth = btoa(`${CLOUDINARY_API_KEY}:${CLOUDINARY_API_SECRET}`);
+  const creds = getAdminCredentials();
+  const auth = btoa(`${creds.key}:${creds.secret}`);
   const body = new URLSearchParams();
   body.set("type", "upload");
   body.set(
@@ -320,6 +355,41 @@ export function persistThumbCount(id, thumbs) {
   saveSpotOverride(publicId, {
     thumbs: Math.max(0, Number.parseInt(thumbs, 10) || 0),
   });
+}
+
+/** Permanently delete a video from Cloudinary (Admin API). */
+export async function adminDeleteSpot(id) {
+  const publicId = String(id || "");
+  if (!publicId) throw new Error("Missing video id");
+  const creds = getAdminCredentials();
+  if (!CLOUDINARY_CLOUD_NAME || !creds) {
+    throw new Error("Add Cloudinary API key + secret to delete from the cloud");
+  }
+
+  const auth = btoa(`${creds.key}:${creds.secret}`);
+  const url = new URL(
+    `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/resources/video/upload`
+  );
+  url.searchParams.append("public_ids[]", publicId);
+  url.searchParams.set("invalidate", "true");
+
+  const res = await fetch(url.toString(), {
+    method: "DELETE",
+    headers: { Authorization: `Basic ${auth}` },
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(
+      detail?.error?.message || `Cloud delete failed (${res.status})`
+    );
+  }
+  clearSpotOverride(publicId);
+  const data = await res.json().catch(() => ({}));
+  const deleted = data?.deleted?.[publicId];
+  if (deleted && deleted !== "deleted" && deleted !== "not_found") {
+    throw new Error(`Cloud delete status: ${deleted}`);
+  }
+  return data;
 }
 
 export async function deleteSpot(id, path, deleteToken) {

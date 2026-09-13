@@ -7,8 +7,10 @@ import {
   publishThumb,
   persistThumbCount,
   deleteSpot,
+  adminDeleteSpot,
   updateSpotMeta,
   adminApiConfigured,
+  setSessionAdminCredentials,
   videoUrl,
   thumbUrl,
   posterUrl,
@@ -142,6 +144,9 @@ const adminPassInput = document.getElementById("admin-pass-input");
 const adminPassError = document.getElementById("admin-pass-error");
 const adminPassClose = document.getElementById("admin-pass-close");
 const adminPassCancel = document.getElementById("admin-pass-cancel");
+const adminApiFields = document.getElementById("admin-api-fields");
+const adminApiKey = document.getElementById("admin-api-key");
+const adminApiSecret = document.getElementById("admin-api-secret");
 const adminModal = document.getElementById("admin-modal");
 const adminClose = document.getElementById("admin-close");
 const adminList = document.getElementById("admin-list");
@@ -661,8 +666,31 @@ function openAdminPassModal() {
   closeAdminModal();
   if (adminPassError) adminPassError.hidden = true;
   if (adminPassInput) adminPassInput.value = "";
+  const needApi = !adminApiConfigured();
+  if (adminApiFields) adminApiFields.hidden = !needApi;
+  if (adminApiKey) adminApiKey.value = "";
+  if (adminApiSecret) adminApiSecret.value = "";
+  if (adminApiKey) adminApiKey.required = needApi;
+  if (adminApiSecret) adminApiSecret.required = needApi;
   adminPassModal.hidden = false;
   requestAnimationFrame(() => adminPassInput?.focus());
+}
+
+function forceRemoveCloudNode(cloudId) {
+  const id = String(cloudId || "");
+  if (!id) return;
+  const node = state.nodes.find(
+    (n) => n.cloudId === id || n.id === `spot-${id}`
+  );
+  if (!node) return;
+  if (state.watchingNode === node) closeTheaterMode();
+  disposeNode(node);
+  state.nodes = state.nodes.filter((n) => n !== node);
+  if (state.focused === node) setFocus(null);
+  if (state.mapOpen) {
+    refreshMapList();
+    syncLeafletMarkers();
+  }
 }
 
 function closeAdminModal() {
@@ -725,8 +753,8 @@ async function populateAdminList() {
     return;
   }
   adminStatus.textContent = adminApiConfigured()
-    ? `${rows.length} video${rows.length === 1 ? "" : "s"} · edits sync to Cloudinary`
-    : `${rows.length} video${rows.length === 1 ? "" : "s"} · edits save on this device`;
+    ? `${rows.length} video${rows.length === 1 ? "" : "s"} · edits & delete sync to Cloudinary`
+    : `${rows.length} video${rows.length === 1 ? "" : "s"} · add API key/secret to delete from Cloudinary`;
 
   for (const row of rows) {
     adminList.appendChild(buildAdminRow(row));
@@ -802,10 +830,14 @@ function buildAdminRow(row) {
   saveBtn.type = "button";
   saveBtn.className = "admin-save-btn";
   saveBtn.textContent = "Save";
+  const deleteBtnEl = document.createElement("button");
+  deleteBtnEl.type = "button";
+  deleteBtnEl.className = "admin-delete-btn";
+  deleteBtnEl.textContent = "Delete";
   const note = document.createElement("p");
   note.className = "admin-row-note";
   note.textContent = "";
-  actions.append(saveBtn);
+  actions.append(deleteBtnEl, saveBtn);
 
   fields.append(nameLabel, placeLabel, actions, note);
   wrap.append(thumb, fields);
@@ -867,6 +899,7 @@ function buildAdminRow(row) {
       return;
     }
     saveBtn.disabled = true;
+    deleteBtnEl.disabled = true;
     note.textContent = "Saving…";
     try {
       const res = await updateSpotMeta(row.id, {
@@ -890,6 +923,36 @@ function buildAdminRow(row) {
       note.textContent = err?.message || "Save failed";
     } finally {
       saveBtn.disabled = false;
+      deleteBtnEl.disabled = false;
+    }
+  });
+
+  deleteBtnEl.addEventListener("click", async () => {
+    const title = nameInput.value.trim() || row.title || "this video";
+    if (!adminApiConfigured()) {
+      note.textContent = "API key + secret required to delete from Cloudinary.";
+      openAdminPassModal();
+      return;
+    }
+    if (!window.confirm(`Delete “${title}” from Cloudinary? This can’t be undone.`)) {
+      return;
+    }
+    saveBtn.disabled = true;
+    deleteBtnEl.disabled = true;
+    note.textContent = "Deleting from Cloudinary…";
+    try {
+      await adminDeleteSpot(row.id);
+      forceRemoveCloudNode(row.id);
+      wrap.remove();
+      setStatus(`Deleted “${title}” from Cloudinary`);
+      if (adminList && !adminList.children.length) {
+        if (adminStatus) adminStatus.textContent = "No uploaded videos yet.";
+      }
+    } catch (err) {
+      console.warn(err);
+      note.textContent = err?.message || "Delete failed";
+      saveBtn.disabled = false;
+      deleteBtnEl.disabled = false;
     }
   });
 

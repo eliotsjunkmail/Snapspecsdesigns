@@ -511,6 +511,26 @@ button {
   opacity: 0.55;
 }
 
+.admin-delete-btn {
+  min-height: 2rem;
+  padding: 0 0.85rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 120, 120, 0.55);
+  background: rgba(80, 16, 16, 0.55);
+  color: #ffd0d0;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.admin-delete-btn:disabled {
+  opacity: 0.55;
+}
+
+.admin-api-fields {
+  display: grid;
+  gap: 0.45rem;
+}
+
 .admin-row-note {
   margin: 0;
   font-size: 0.72rem;
