@@ -741,6 +741,7 @@ async function populateAdminList() {
         placeInput.value = place;
         placeInput.dataset.lat = String(row.lat);
         placeInput.dataset.lng = String(row.lng);
+        placeInput.dataset.picked = "1";
       })
       .catch(() => {});
   }
