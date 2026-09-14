@@ -706,7 +706,7 @@ button {
   pointer-events: auto;
   left: 0;
   right: 0;
-  bottom: calc(18px + var(--safe-bottom));
+  bottom: calc(102px + var(--safe-bottom));
   width: 4.55rem;
   height: 4.55rem;
   margin: 0 auto;
@@ -1189,7 +1189,7 @@ button {
 
 .status {
   left: 50%;
-  bottom: calc(88px + var(--safe-bottom));
+  bottom: calc(188px + var(--safe-bottom));
   transform: translateX(-50%);
   margin: 0;
   max-width: min(88vw, 24rem);
@@ -2685,7 +2685,7 @@ button {
   z-index: 6;
   left: 12px;
   right: 12px;
-  bottom: calc(102px + var(--safe-bottom));
+  bottom: calc(18px + var(--safe-bottom));
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
