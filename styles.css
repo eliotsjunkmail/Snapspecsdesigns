@@ -135,7 +135,7 @@ button {
   font-size: clamp(1.35rem, 5.4vw, 1.9rem);
   letter-spacing: -0.03em;
   line-height: 1.2;
-  max-width: 14ch;
+  max-width: 18ch;
   text-align: center;
   color: var(--foam);
   text-shadow: 0 2px 18px rgba(0, 0, 0, 0.6);
