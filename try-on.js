@@ -8,22 +8,32 @@ const FACE_MODEL =
   "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
 
 const SIZE_SCALE = { 47: 0.9, 52: 1 };
+const LENS_W = 50;
+const LENS_H = 35;
+const LENS_GAP = 20;
+const LENS_RIM = 7.6;
+const FRAME_SPAN = LENS_W + LENS_GAP;
+const RIM_DEPTH = 5.5;
 const FINISHES = {
   black: {
-    frame: "#111111",
-    rim: "#1c1c1c",
-    highlight: "rgba(255,255,255,0.22)",
-    metal: "#2a2a2a",
-    lens: "rgba(40, 70, 95, 0.28)",
-    lensEdge: "rgba(180, 210, 230, 0.35)",
+    frame: "#0a0a0a",
+    rim: "#141414",
+    highlight: "rgba(255,255,255,0.34)",
+    metal: "#111111",
+    lensHi: "rgba(210, 236, 250, 0.5)",
+    lens: "rgba(78, 132, 178, 0.3)",
+    lensLo: "rgba(22, 40, 62, 0.38)",
+    lensEdge: "rgba(220, 238, 248, 0.4)",
   },
   silver: {
-    frame: "#d8d8d8",
-    rim: "#f2f2f2",
-    highlight: "rgba(255,255,255,0.55)",
-    metal: "#9a9a9a",
-    lens: "rgba(30, 50, 70, 0.22)",
-    lensEdge: "rgba(220, 230, 240, 0.45)",
+    frame: "#d4d4d4",
+    rim: "#efefef",
+    highlight: "rgba(255,255,255,0.58)",
+    metal: "#b8b8b8",
+    lensHi: "rgba(176, 214, 232, 0.5)",
+    lens: "rgba(42, 72, 104, 0.38)",
+    lensLo: "rgba(16, 26, 40, 0.48)",
+    lensEdge: "rgba(220, 232, 242, 0.5)",
   },
 };
 
@@ -314,7 +324,7 @@ function tick() {
   const pose = detectPose(cover, performance.now());
   if (pose) {
     lostAt = 0;
-    smooth = lerpPose(smooth, pose, smooth ? 0.38 : 1);
+    smooth = lerpPose(smooth, pose, smooth ? 0.32 : 1);
     setHint("");
     const faded = { ...smooth, alpha: 1 };
     faded.scale *= SIZE_SCALE[sizeMm] || 1;
@@ -374,217 +384,327 @@ function pt(lm, i, cover) {
   return {
     x: cover.dx + lm[i].x * cover.dw,
     y: cover.dy + lm[i].y * cover.dh,
-    z: lm[i].z || 0,
+    z: (lm[i].z || 0) * cover.dw,
   };
 }
 
+function subV(a, b) {
+  return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z };
+}
+
+function crossV(a, b) {
+  return {
+    x: a.y * b.z - a.z * b.y,
+    y: a.z * b.x - a.x * b.z,
+    z: a.x * b.y - a.y * b.x,
+  };
+}
+
+function normV(a) {
+  const n = Math.hypot(a.x, a.y, a.z) || 1;
+  return { x: a.x / n, y: a.y / n, z: a.z / n };
+}
+
 function poseFromLandmarks(lm, cover) {
-  const left = pt(lm, 33, cover);
-  const right = pt(lm, 263, cover);
-  const nose = pt(lm, 1, cover);
-  const bridge = pt(lm, 168, cover);
+  const leftOuter = pt(lm, 33, cover);
+  const leftInner = pt(lm, 133, cover);
+  const rightInner = pt(lm, 362, cover);
+  const rightOuter = pt(lm, 263, cover);
+  const left = {
+    x: (leftOuter.x + leftInner.x) * 0.5,
+    y: (leftOuter.y + leftInner.y) * 0.5,
+    z: (leftOuter.z + leftInner.z) * 0.5,
+  };
+  const right = {
+    x: (rightOuter.x + rightInner.x) * 0.5,
+    y: (rightOuter.y + rightInner.y) * 0.5,
+    z: (rightOuter.z + rightInner.z) * 0.5,
+  };
   const brow = pt(lm, 10, cover);
   const chin = pt(lm, 152, cover);
   const dx = right.x - left.x;
   const dy = right.y - left.y;
-  const ipd = Math.hypot(dx, dy);
+  const dz = right.z - left.z;
+  const ipd = Math.hypot(dx, dy, dz);
   if (ipd < 8) return null;
-  const roll = Math.atan2(dy, dx);
-  const midX = (left.x + right.x) / 2;
-  const midY = (left.y + right.y) / 2;
-  const yaw = Math.atan2(left.z - right.z, ipd / cover.dw) * 0.85;
-  const faceH = Math.hypot(chin.x - brow.x, chin.y - brow.y) || ipd * 2.4;
-  const pitch = Math.atan2(nose.y - midY, faceH) * 1.6;
+
+  const ax = normV(subV(right, left));
+  let ay = normV(subV(chin, brow));
+  let az = crossV(ax, ay);
+  if (az.z < 0) az = { x: -az.x, y: -az.y, z: -az.z };
+  az = normV(az);
+  ay = normV(crossV(az, ax));
+
   return {
-    x: midX * 0.35 + bridge.x * 0.65,
-    y: midY * 0.55 + bridge.y * 0.45,
-    scale: ipd / 64,
-    roll,
-    yaw,
-    pitch,
+    x: (left.x + right.x) / 2,
+    y: (left.y + right.y) / 2 + ipd * 0.015,
+    scale: ipd / FRAME_SPAN,
+    ax,
+    ay,
+    az,
     alpha: 1,
   };
 }
 
 function lerpPose(a, b, t) {
   if (!a) return { ...b };
-  const lerpA = (x, y) => x + (y - x) * t;
-  let dRoll = b.roll - a.roll;
-  while (dRoll > Math.PI) dRoll -= Math.PI * 2;
-  while (dRoll < -Math.PI) dRoll += Math.PI * 2;
+  const mix = (p, q) => ({
+    x: p.x + (q.x - p.x) * t,
+    y: p.y + (q.y - p.y) * t,
+    z: p.z + (q.z - p.z) * t,
+  });
+  const ax = normV(mix(a.ax, b.ax));
+  let az = crossV(ax, mix(a.ay, b.ay));
+  if (az.z < 0) az = { x: -az.x, y: -az.y, z: -az.z };
+  az = normV(az);
+  const ay = normV(crossV(az, ax));
   return {
-    x: lerpA(a.x, b.x),
-    y: lerpA(a.y, b.y),
-    scale: lerpA(a.scale, b.scale),
-    roll: a.roll + dRoll * t,
-    yaw: lerpA(a.yaw, b.yaw),
-    pitch: lerpA(a.pitch, b.pitch),
+    x: a.x + (b.x - a.x) * t,
+    y: a.y + (b.y - a.y) * t,
+    scale: a.scale + (b.scale - a.scale) * t,
+    ax,
+    ay,
+    az,
     alpha: b.alpha,
   };
 }
 
-/** Angular smart-glasses matching the Snap Specs / SPECS silhouette. */
+function projector(pose) {
+  const { x: ox, y: oy, scale: s, ax, ay, az } = pose;
+  return (lx, ly, lz = 0) => ({
+    x: ox + (ax.x * lx + ay.x * ly + az.x * lz) * s,
+    y: oy + (ax.y * lx + ay.y * ly + az.y * lz) * s,
+    z: (ax.z * lx + ay.z * ly + az.z * lz) * s,
+  });
+}
+
+function wrapZ(x) {
+  return 0.0021 * x * x;
+}
+
+function pathLocal(ctx, proj, pts) {
+  const p0 = proj(pts[0][0], pts[0][1], pts[0][2]);
+  ctx.moveTo(p0.x, p0.y);
+  for (let i = 1; i < pts.length; i += 1) {
+    const p = proj(pts[i][0], pts[i][1], pts[i][2]);
+    ctx.lineTo(p.x, p.y);
+  }
+  ctx.closePath();
+  return p0;
+}
+
+function roundedRectPoints(x, y, w, h, rtl, rtr, rbr, rbl, n = 4) {
+  const pts = [];
+  const arc = (cx, cy, r, a0, a1) => {
+    const rr = Math.max(0.05, r);
+    for (let i = 0; i <= n; i += 1) {
+      const a = a0 + (a1 - a0) * (i / n);
+      pts.push([cx + Math.cos(a) * rr, cy + Math.sin(a) * rr]);
+    }
+  };
+  arc(x + rtl, y + rtl, rtl, Math.PI, Math.PI * 1.5);
+  arc(x + w - rtr, y + rtr, rtr, Math.PI * 1.5, Math.PI * 2);
+  arc(x + w - rbr, y + h - rbr, rbr, 0, Math.PI * 0.5);
+  arc(x + rbl, y + h - rbl, rbl, Math.PI * 0.5, Math.PI);
+  return pts;
+}
+
+function lensOutline(cx, w, h, side, inset) {
+  const ww = w - inset * 2;
+  const hh = h - inset * 2;
+  const x = cx - ww / 2;
+  const y = -hh / 2;
+  const rOut = Math.max(3.4, 10.5 - inset * 0.65);
+  const rIn = Math.max(2.2, 5.6 - inset * 0.4);
+  if (side > 0) return roundedRectPoints(x, y, ww, hh, rIn, rOut, rOut, rIn);
+  return roundedRectPoints(x, y, ww, hh, rOut, rIn, rIn, rOut);
+}
+
+function withWrap(pts2) {
+  return pts2.map(([x, y]) => [x, y, wrapZ(x)]);
+}
+
+/** Chunky wraparound Snap Specs as a rigid 3D pair on the eyes. */
 function drawSnapSpecs(ctx, pose, colors) {
   const s = pose.scale;
   if (!Number.isFinite(s) || s < 0.2) return;
+  if (!pose.ax || !pose.ay || !pose.az) return;
+  const proj = projector(pose);
   ctx.save();
   ctx.globalAlpha = Math.max(0, Math.min(1, pose.alpha ?? 1));
-  ctx.translate(pose.x, pose.y);
-  ctx.rotate(pose.roll);
-  const yaw = clamp(pose.yaw, -0.7, 0.7);
-  const pitch = clamp(pose.pitch, -0.45, 0.35);
-  const flatten = Math.cos(yaw);
-  ctx.transform(flatten, pitch * 0.18, 0, 1 + Math.abs(pitch) * 0.04, 0, 0);
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
 
-  const lensW = 52;
-  const lensH = 36;
-  const gap = 16;
-  const rim = 6.2;
-  const leftCx = -(gap / 2 + lensW / 2);
-  const rightCx = gap / 2 + lensW / 2;
+  const leftCx = -(LENS_GAP / 2 + LENS_W / 2);
+  const rightCx = LENS_GAP / 2 + LENS_W / 2;
+  const leftZ = proj(leftCx, 0, wrapZ(leftCx)).z;
+  const rightZ = proj(rightCx, 0, wrapZ(rightCx)).z;
+  const farFirst = leftZ >= rightZ ? [-1, 1] : [1, -1];
+  const leftHinge = proj(leftCx - LENS_W / 2 - 8, 0, 8);
+  const leftTip = proj(leftCx - LENS_W / 2 - 8, 3, 78);
+  const rightHinge = proj(rightCx + LENS_W / 2 + 8, 0, 8);
+  const rightTip = proj(rightCx + LENS_W / 2 + 8, 3, 78);
+  const origin = proj(0, 0, 0);
+  const leftOut = Math.abs(leftTip.x - origin.x) - Math.abs(leftHinge.x - origin.x);
+  const rightOut = Math.abs(rightTip.x - origin.x) - Math.abs(rightHinge.x - origin.x);
+  const minOut = 10 * Math.max(1, s);
+  const templeSide =
+    leftOut >= rightOut && leftOut > minOut ? -1 : rightOut > minOut ? 1 : 0;
 
-  drawTemple(ctx, colors, s, -1, yaw, leftCx, lensW, lensH);
-  drawTemple(ctx, colors, s, 1, yaw, rightCx, lensW, lensH);
-
-  drawLens(ctx, colors, s, leftCx, 0, lensW, lensH, rim, -1, yaw);
-  drawLens(ctx, colors, s, rightCx, 0, lensW, lensH, rim, 1, yaw);
-  drawBridge(ctx, colors, s, gap, rim);
-  drawPod(ctx, colors, s, leftCx, lensW, lensH, -1);
-  drawPod(ctx, colors, s, rightCx, lensW, lensH, 1);
-
+  for (const side of farFirst) {
+    const cx = side < 0 ? leftCx : rightCx;
+    if (side === templeSide) drawTemple(ctx, colors, proj, side, cx);
+    drawLens(ctx, colors, proj, s, cx, side);
+    drawPod(ctx, colors, proj, s, cx, side);
+  }
+  drawBridge(ctx, colors, proj);
   ctx.restore();
 }
 
-function drawLens(ctx, colors, s, cx, cy, w, h, rim, side, yaw) {
-  ctx.save();
-  ctx.scale(s, s);
-  const outer = lensOutline(cx, cy, w + rim * 2, h + rim * 2, side);
-  const inner = lensOutline(cx, cy, w, h, side);
+function ellipsePoly(cx, cy, rx, ry, z, n = 10) {
+  const pts = [];
+  for (let i = 0; i < n; i += 1) {
+    const a = (Math.PI * 2 * i) / n;
+    pts.push([cx + Math.cos(a) * rx, cy + Math.sin(a) * ry, z]);
+  }
+  return pts;
+}
+
+function drawLens(ctx, colors, proj, s, cx, side) {
+  const outer = withWrap(lensOutline(cx, LENS_W + LENS_RIM * 2, LENS_H + LENS_RIM * 2, side, 0));
+  const inner = withWrap(lensOutline(cx, LENS_W, LENS_H, side, 0));
+  const outerBack = outer.map(([x, y, z]) => [x + side * 1.4, y, z + RIM_DEPTH]);
+  const shadow = outer.map(([x, y, z]) => [x, y + 1.6, z + 1]);
 
   ctx.beginPath();
-  pathPoly(ctx, outer);
+  pathLocal(ctx, proj, shadow);
+  ctx.fillStyle = "rgba(0,0,0,0.2)";
+  ctx.fill();
+
+  ctx.beginPath();
+  pathLocal(ctx, proj, outerBack);
+  ctx.fillStyle = colors.rim;
+  ctx.fill();
+
+  ctx.beginPath();
+  pathLocal(ctx, proj, outer);
   ctx.fillStyle = colors.frame;
   ctx.fill();
 
   ctx.beginPath();
-  pathPoly(ctx, inner);
-  const g = ctx.createLinearGradient(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2);
-  g.addColorStop(0, "rgba(255,255,255,0.16)");
-  g.addColorStop(0.45, colors.lens);
-  g.addColorStop(1, "rgba(0,0,0,0.38)");
+  pathLocal(ctx, proj, inner);
+  const a = proj(cx - LENS_W / 2, -LENS_H / 2, wrapZ(cx - LENS_W / 2));
+  const b = proj(cx + LENS_W / 2, LENS_H / 2, wrapZ(cx + LENS_W / 2));
+  const g = ctx.createLinearGradient(a.x, a.y, b.x, b.y);
+  g.addColorStop(0, colors.lensHi);
+  g.addColorStop(0.38, colors.lens);
+  g.addColorStop(1, colors.lensLo);
   ctx.fillStyle = g;
   ctx.fill();
   ctx.strokeStyle = colors.lensEdge;
-  ctx.lineWidth = 1.1;
+  ctx.lineWidth = Math.max(0.8, 1.05 * s);
   ctx.stroke();
 
+  const hx = cx - 6 * side;
+  const hy = -7.5;
+  const hz = wrapZ(hx);
   ctx.beginPath();
-  ctx.ellipse(cx - 8 * side, cy - 8, 14, 7, -0.4 * side, 0, Math.PI * 2);
+  pathLocal(ctx, proj, ellipsePoly(hx, hy, 13, 6.2, hz, 12));
   ctx.fillStyle = colors.highlight;
   ctx.fill();
+}
 
-  // Inner temple reflection in the lens (SPECS try-on look).
+function drawBridge(ctx, colors, proj) {
+  const y = -2.6;
+  const z0 = wrapZ(0);
   ctx.beginPath();
-  ctx.moveTo(cx + side * (w * 0.18), cy - h * 0.28);
-  ctx.lineTo(cx + side * (w * 0.42), cy - h * 0.08);
-  ctx.lineTo(cx + side * (w * 0.38), cy + h * 0.22);
-  ctx.lineTo(cx + side * (w * 0.12), cy + h * 0.08);
-  ctx.closePath();
-  ctx.fillStyle = `rgba(20,20,20,${0.18 + Math.abs(yaw) * 0.2})`;
-  ctx.fill();
-  ctx.restore();
-}
-
-function lensOutline(cx, cy, w, h, side) {
-  const ox = side * (w * 0.08);
-  return [
-    [cx - w / 2 + 7 - ox * 0.2, cy - h / 2],
-    [cx + w / 2 - 4 + ox, cy - h / 2 + 3],
-    [cx + w / 2 + 2 + ox, cy - h * 0.12],
-    [cx + w / 2 + 2 + ox, cy + h * 0.18],
-    [cx + w / 2 - 6 + ox, cy + h / 2],
-    [cx - w / 2 + 8 - ox * 0.2, cy + h / 2],
-    [cx - w / 2 - 1, cy + h * 0.12],
-    [cx - w / 2 - 1, cy - h * 0.18],
-  ];
-}
-
-function pathPoly(ctx, pts) {
-  ctx.moveTo(pts[0][0], pts[0][1]);
-  for (let i = 1; i < pts.length; i += 1) ctx.lineTo(pts[i][0], pts[i][1]);
-  ctx.closePath();
-}
-
-function drawBridge(ctx, colors, s, gap, rim) {
-  ctx.save();
-  ctx.scale(s, s);
-  ctx.beginPath();
-  const y = -4;
-  roundedRect(ctx, -gap / 2 - 2, y - rim * 0.55, gap + 4, rim * 1.35, 2);
+  pathLocal(ctx, proj, [
+    [-LENS_GAP / 2 + 1, y - 4.2, z0],
+    [LENS_GAP / 2 - 1, y - 4.2, z0],
+    [LENS_GAP / 2 - 1, y + 5.4, z0],
+    [-LENS_GAP / 2 + 1, y + 5.4, z0],
+  ]);
   ctx.fillStyle = colors.frame;
   ctx.fill();
   ctx.beginPath();
-  roundedRect(ctx, -gap / 2 + 1, y - 1.2, gap - 2, 2.4, 1);
+  pathLocal(ctx, proj, [
+    [-LENS_GAP / 2 + 3, y - 1.2, z0],
+    [LENS_GAP / 2 - 3, y - 1.2, z0],
+    [LENS_GAP / 2 - 3, y + 1.4, z0],
+    [-LENS_GAP / 2 + 3, y + 1.4, z0],
+  ]);
   ctx.fillStyle = colors.highlight;
-  ctx.globalAlpha *= 0.45;
+  ctx.globalAlpha *= 0.4;
   ctx.fill();
-  ctx.restore();
+  ctx.globalAlpha /= 0.4;
 }
 
-function drawPod(ctx, colors, s, lensCx, lensW, lensH, side) {
-  ctx.save();
-  ctx.scale(s, s);
-  const x = lensCx + side * (lensW / 2 + 7);
-  const y = 2;
+function drawPod(ctx, colors, proj, s, lensCx, side) {
+  const x = lensCx + side * (LENS_W / 2 + 8.2);
+  const y = 0.4;
+  const z = wrapZ(x) + 2.5;
+  const xIn = x - side * 6;
+  const xOut = x + side * 9.2;
+  const y0 = y - 14;
+  const y1 = y + 13;
   ctx.beginPath();
-  roundedRect(ctx, x - 7, y - lensH * 0.28, 14, 22, 2.5);
+  pathLocal(ctx, proj, [
+    [xOut, y0 + 1.2, z + 9],
+    [xOut, y1 - 1.2, z + 9],
+    [x + side * 5.4, y1, z],
+    [x + side * 5.4, y0, z],
+  ]);
+  ctx.fillStyle = colors.rim;
+  ctx.fill();
+  ctx.beginPath();
+  pathLocal(ctx, proj, [
+    [xIn, y0, z],
+    [x + side * 5.4, y0, z],
+    [x + side * 5.4, y1, z],
+    [xIn, y1, z],
+  ]);
+  ctx.fillStyle = colors.frame;
+  ctx.fill();
+  const cam = proj(x + side * 2.6, y + 1.5, z + 2.4);
+  ctx.beginPath();
+  ctx.arc(cam.x, cam.y, 2.25 * s, 0, Math.PI * 2);
+  ctx.fillStyle = "#050505";
+  ctx.fill();
+  const glint = proj(x + side * 2.9, y + 0.7, z + 2.8);
+  ctx.beginPath();
+  ctx.arc(glint.x, glint.y, 0.74 * s, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(140, 195, 230, 0.9)";
+  ctx.fill();
+}
+
+function drawTemple(ctx, colors, proj, side, lensCx) {
+  const hx = lensCx + side * (LENS_W / 2 + 7.6);
+  const y0 = -9.2;
+  const y1 = 9.8;
+  const z0 = wrapZ(hx) + 5;
+  const z1 = z0 + 58;
+  const xOut = hx + side * 3.8;
+  const xIn = hx - side * 0.8;
+  ctx.beginPath();
+  pathLocal(ctx, proj, [
+    [xOut, y0, z0],
+    [xOut + side * 2.4, y0 + 4.5, z1],
+    [xOut + side * 2.4, y1 + 6.5, z1],
+    [xOut, y1, z0],
+  ]);
   ctx.fillStyle = colors.frame;
   ctx.fill();
   ctx.beginPath();
-  ctx.arc(x + side * 2, y + 2, 2.1, 0, Math.PI * 2);
-  ctx.fillStyle = "#0a0a0a";
+  pathLocal(ctx, proj, [
+    [xIn, y0, z0],
+    [xOut, y0, z0],
+    [xOut + side * 2.4, y0 + 4.5, z1],
+    [xIn + side * 2.4, y0 + 4.5, z1],
+  ]);
+  ctx.fillStyle = colors.highlight;
+  ctx.globalAlpha *= 0.22;
   ctx.fill();
-  ctx.beginPath();
-  ctx.arc(x + side * 2.2, y + 1.6, 0.7, 0, Math.PI * 2);
-  ctx.fillStyle = "rgba(120,180,220,0.85)";
-  ctx.fill();
-  ctx.restore();
-}
-
-function drawTemple(ctx, colors, s, side, yaw, lensCx, lensW, lensH) {
-  const visible = side * yaw;
-  const length = 78 * (0.55 + Math.max(0, visible) * 1.4);
-  if (length < 18) return;
-  ctx.save();
-  ctx.scale(s, s);
-  const x0 = lensCx + side * (lensW / 2 + 12);
-  const y0 = -lensH * 0.08;
-  const depth = 22 + Math.abs(yaw) * 28;
-  ctx.beginPath();
-  ctx.moveTo(x0, y0 - 5);
-  ctx.lineTo(x0 + side * length * 0.15, y0 - 4);
-  ctx.lineTo(x0 + side * length, y0 - 2 + depth * 0.15);
-  ctx.lineTo(x0 + side * length, y0 + 8 + depth * 0.15);
-  ctx.lineTo(x0 + side * length * 0.15, y0 + 8);
-  ctx.lineTo(x0, y0 + 7);
-  ctx.closePath();
-  ctx.fillStyle = colors.metal;
-  ctx.fill();
-  ctx.restore();
-}
-
-function roundedRect(ctx, x, y, w, h, r) {
-  const rr = Math.min(r, w / 2, h / 2);
-  ctx.moveTo(x + rr, y);
-  ctx.arcTo(x + w, y, x + w, y + h, rr);
-  ctx.arcTo(x + w, y + h, x, y + h, rr);
-  ctx.arcTo(x, y + h, x, y, rr);
-  ctx.arcTo(x, y, x + w, y, rr);
-  ctx.closePath();
-}
-
-function clamp(n, a, b) {
-  return Math.max(a, Math.min(b, n));
+  ctx.globalAlpha /= 0.22;
 }
 
 function takePhoto() {
