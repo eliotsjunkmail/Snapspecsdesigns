@@ -621,8 +621,9 @@ function drawPod(ctx, colors, s, lensCx, lensW, lensH, side) {
 
 function templeShape(side, yaw, pitch, hingeX, hingeY) {
   const recede = yaw * side;
-  const length = Math.max(10, 18 + recede * 16);
-  const drop = 9 + clamp(pitch, -0.4, 0.4) * 2.5;
+  // Short front stubs wrap back toward the ears; yaw only changes length.
+  const length = Math.max(8, 12 + recede * 18);
+  const drop = 11 + clamp(pitch, -0.4, 0.4) * 2;
   return {
     x0: hingeX,
     y0: hingeY,
