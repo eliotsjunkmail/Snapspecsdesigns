@@ -383,8 +383,25 @@ function pt(lm, i, cover) {
   return {
     x: cover.dx + lm[i].x * cover.dw,
     y: cover.dy + lm[i].y * cover.dh,
-    z: lm[i].z || 0,
+    z: (lm[i].z || 0) * cover.dw,
   };
+}
+
+function subV(a, b) {
+  return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z };
+}
+
+function crossV(a, b) {
+  return {
+    x: a.y * b.z - a.z * b.y,
+    y: a.z * b.x - a.x * b.z,
+    z: a.x * b.y - a.y * b.x,
+  };
+}
+
+function normV(a) {
+  const n = Math.hypot(a.x, a.y, a.z) || 1;
+  return { x: a.x / n, y: a.y / n, z: a.z / n };
 }
 
 function poseFromLandmarks(lm, cover) {
@@ -395,30 +412,38 @@ function poseFromLandmarks(lm, cover) {
   const left = {
     x: (leftOuter.x + leftInner.x) * 0.5,
     y: (leftOuter.y + leftInner.y) * 0.5,
+    z: (leftOuter.z + leftInner.z) * 0.5,
   };
   const right = {
     x: (rightOuter.x + rightInner.x) * 0.5,
     y: (rightOuter.y + rightInner.y) * 0.5,
+    z: (rightOuter.z + rightInner.z) * 0.5,
   };
-  const nose = pt(lm, 1, cover);
   const bridge = pt(lm, 168, cover);
+  const chin = pt(lm, 152, cover);
+  const brow = pt(lm, 10, cover);
   const dx = right.x - left.x;
   const dy = right.y - left.y;
-  const ipd = Math.hypot(dx, dy);
+  const dz = right.z - left.z;
+  const ipd = Math.hypot(dx, dy, dz);
   if (ipd < 8) return null;
-  const roll = Math.atan2(dy, dx);
+
+  const ax = normV(subV(right, left));
+  let ay = normV(subV(chin, brow));
+  let az = crossV(ax, ay);
+  if (az.z < 0) az = { x: -az.x, y: -az.y, z: -az.z };
+  az = normV(az);
+  ay = normV(crossV(az, ax));
+
   const midX = (left.x + right.x) / 2;
   const midY = (left.y + right.y) / 2;
-  // Nose offset is stabler than per-ear landmarks; temples stay a rigid pair.
-  const yaw = clamp((nose.x - midX) / ipd, -0.85, 0.85);
-  const pitch = clamp(((nose.y - midY) / ipd) * 0.7, -0.5, 0.4);
   return {
-    x: midX * 0.4 + bridge.x * 0.6,
-    y: midY + ipd * 0.04,
-    scale: ipd / 72,
-    roll,
-    yaw,
-    pitch,
+    x: midX * 0.45 + bridge.x * 0.55,
+    y: midY + ipd * 0.02,
+    scale: ipd / 66,
+    ax,
+    ay,
+    az,
     alpha: 1,
   };
 }
@@ -459,91 +484,141 @@ function filterPose(prev, next, dt) {
     euro = {};
     return { ...next };
   }
+  const ax = normV({
+    x: euroScalar("axx", next.ax.x, dt, 0.5, 0.006),
+    y: euroScalar("axy", next.ax.y, dt, 0.5, 0.006),
+    z: euroScalar("axz", next.ax.z, dt, 0.5, 0.006),
+  });
+  const ayRaw = {
+    x: euroScalar("ayx", next.ay.x, dt, 0.5, 0.006),
+    y: euroScalar("ayy", next.ay.y, dt, 0.5, 0.006),
+    z: euroScalar("ayz", next.ay.z, dt, 0.5, 0.006),
+  };
+  let az = crossV(ax, ayRaw);
+  if (az.z < 0) az = { x: -az.x, y: -az.y, z: -az.z };
+  az = normV(az);
+  const ay = normV(crossV(az, ax));
   return {
     x: euroScalar("x", next.x, dt, 0.9, 0.008),
     y: euroScalar("y", next.y, dt, 0.9, 0.008),
     scale: euroScalar("scale", next.scale, dt, 0.55, 0.004),
-    roll: euroScalar("roll", next.roll, dt, 0.5, 0.006, true),
-    yaw: euroScalar("yaw", next.yaw, dt, 0.38, 0.004),
-    pitch: euroScalar("pitch", next.pitch, dt, 0.4, 0.004),
+    ax,
+    ay,
+    az,
     alpha: 1,
   };
 }
 
-/** Angular smart-glasses matching the Snap Specs / SPECS silhouette. */
+function projector(pose) {
+  const { x: ox, y: oy, scale: s, ax, ay, az } = pose;
+  return (lx, ly, lz = 0) => ({
+    x: ox + (ax.x * lx + ay.x * ly + az.x * lz) * s,
+    y: oy + (ax.y * lx + ay.y * ly + az.y * lz) * s,
+    z: (ax.z * lx + ay.z * ly + az.z * lz) * s,
+  });
+}
+
+function wrapZ(x) {
+  return 0.0018 * x * x;
+}
+
+function pathLocal(ctx, proj, pts) {
+  const p0 = proj(pts[0][0], pts[0][1], pts[0][2]);
+  ctx.moveTo(p0.x, p0.y);
+  for (let i = 1; i < pts.length; i += 1) {
+    const p = proj(pts[i][0], pts[i][1], pts[i][2]);
+    ctx.lineTo(p.x, p.y);
+  }
+  ctx.closePath();
+  return p0;
+}
+
+/** Angular smart-glasses as a rigid 3D pair that wraps the head. */
 function drawSnapSpecs(ctx, pose, colors) {
   const s = pose.scale;
   if (!Number.isFinite(s) || s < 0.2) return;
+  if (!pose.ax || !pose.ay || !pose.az) return;
+  const proj = projector(pose);
   ctx.save();
   ctx.globalAlpha = Math.max(0, Math.min(1, pose.alpha ?? 1));
-  const yaw = clamp(pose.yaw, -0.85, 0.85);
-  const pitch = clamp(pose.pitch, -0.5, 0.4);
-  ctx.translate(pose.x, pose.y + pitch * s * 6);
-  ctx.rotate(pose.roll);
-  ctx.scale(Math.max(0.42, Math.cos(yaw)), 1);
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
 
   const lensW = 50;
   const lensH = 30;
-  const gap = 14;
+  const gap = 16;
   const rim = 5.4;
   const leftCx = -(gap / 2 + lensW / 2);
   const rightCx = gap / 2 + lensW / 2;
+  const leftZ = proj(leftCx, 0, wrapZ(leftCx)).z;
+  const rightZ = proj(rightCx, 0, wrapZ(rightCx)).z;
+  const farFirst = leftZ >= rightZ ? [-1, 1] : [1, -1];
 
-  drawTemple(ctx, colors, s, -1, yaw, pitch, leftCx, lensW);
-  drawTemple(ctx, colors, s, 1, yaw, pitch, rightCx, lensW);
-  drawLens(ctx, colors, s, leftCx, 0, lensW, lensH, rim, -1, yaw);
-  drawLens(ctx, colors, s, rightCx, 0, lensW, lensH, rim, 1, yaw);
-  drawBridge(ctx, colors, s, gap, rim);
-  drawPod(ctx, colors, s, leftCx, lensW, lensH, -1);
-  drawPod(ctx, colors, s, rightCx, lensW, lensH, 1);
-
+  for (const side of farFirst) {
+    const cx = side < 0 ? leftCx : rightCx;
+    drawTemple(ctx, colors, proj, s, side, cx, lensW);
+    drawLens(ctx, colors, proj, s, cx, lensW, lensH, rim, side);
+    drawPod(ctx, colors, proj, s, cx, lensW, side);
+  }
+  drawBridge(ctx, colors, proj, s, gap, rim);
   ctx.restore();
 }
 
-function drawLens(ctx, colors, s, cx, cy, w, h, rim, side, yaw) {
-  ctx.save();
-  ctx.scale(s, s);
-  const outer = lensOutline(cx, cy, w + rim * 2, h + rim * 2, side, 5.5);
-  const inner = lensOutline(cx, cy, w, h, side, 3.2);
+function drawLens(ctx, colors, proj, s, cx, w, h, rim, side) {
+  const outer2 = lensOutline(cx, 0, w + rim * 2, h + rim * 2, side, 5.5);
+  const inner2 = lensOutline(cx, 0, w, h, side, 3.2);
+  const outer = outer2.map(([x, y]) => [x, y, wrapZ(x)]);
+  const inner = inner2.map(([x, y]) => [x, y, wrapZ(x)]);
+  const shadow = outer.map(([x, y, z]) => [x, y + 1.4, z]);
 
   ctx.beginPath();
-  pathPoly(ctx, outer);
+  pathLocal(ctx, proj, shadow);
   ctx.fillStyle = "rgba(0,0,0,0.28)";
-  ctx.translate(0, 1.4);
   ctx.fill();
-  ctx.translate(0, -1.4);
 
   ctx.beginPath();
-  pathPoly(ctx, outer);
+  pathLocal(ctx, proj, outer);
   ctx.fillStyle = colors.frame;
   ctx.fill();
 
   ctx.beginPath();
-  pathPoly(ctx, inner);
-  const g = ctx.createLinearGradient(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2);
+  pathLocal(ctx, proj, inner);
+  const a = proj(cx - w / 2, -h / 2, wrapZ(cx - w / 2));
+  const b = proj(cx + w / 2, h / 2, wrapZ(cx + w / 2));
+  const g = ctx.createLinearGradient(a.x, a.y, b.x, b.y);
   g.addColorStop(0, "rgba(255,255,255,0.2)");
   g.addColorStop(0.4, colors.lens);
   g.addColorStop(1, "rgba(0,0,0,0.32)");
   ctx.fillStyle = g;
   ctx.fill();
   ctx.strokeStyle = colors.lensEdge;
-  ctx.lineWidth = 0.9;
+  ctx.lineWidth = 0.9 * s;
   ctx.stroke();
 
+  const hx = cx - 6 * side;
+  const hy = -7;
+  const hz = wrapZ(hx);
+  const highlight = [
+    [hx - 12, hy, hz],
+    [hx, hy - 5.5, hz],
+    [hx + 12, hy, hz],
+    [hx, hy + 5.5, hz],
+  ];
   ctx.beginPath();
-  ctx.ellipse(cx - 6 * side, cy - 7, 12, 5.5, -0.35 * side, 0, Math.PI * 2);
+  pathLocal(ctx, proj, highlight);
   ctx.fillStyle = colors.highlight;
   ctx.fill();
 
+  const shade = [
+    [cx + side * (w * 0.1), -h * 0.22, wrapZ(cx + side * (w * 0.1))],
+    [cx + side * (w * 0.38), -h * 0.06, wrapZ(cx + side * (w * 0.38))],
+    [cx + side * (w * 0.34), h * 0.18, wrapZ(cx + side * (w * 0.34))],
+    [cx + side * (w * 0.06), h * 0.06, wrapZ(cx + side * (w * 0.06))],
+  ];
   ctx.beginPath();
-  ctx.moveTo(cx + side * (w * 0.1), cy - h * 0.22);
-  ctx.lineTo(cx + side * (w * 0.38), cy - h * 0.06);
-  ctx.lineTo(cx + side * (w * 0.34), cy + h * 0.18);
-  ctx.lineTo(cx + side * (w * 0.06), cy + h * 0.06);
-  ctx.closePath();
-  ctx.fillStyle = `rgba(15,15,15,${0.14 + Math.abs(yaw) * 0.18})`;
+  pathLocal(ctx, proj, shade);
+  ctx.fillStyle = "rgba(15,15,15,0.2)";
   ctx.fill();
-  ctx.restore();
 }
 
 function lensOutline(cx, cy, w, h, side, chamfer) {
@@ -577,92 +652,78 @@ function lensOutline(cx, cy, w, h, side, chamfer) {
   ];
 }
 
-function pathPoly(ctx, pts) {
-  ctx.moveTo(pts[0][0], pts[0][1]);
-  for (let i = 1; i < pts.length; i += 1) ctx.lineTo(pts[i][0], pts[i][1]);
-  ctx.closePath();
-}
-
-function drawBridge(ctx, colors, s, gap, rim) {
-  ctx.save();
-  ctx.scale(s, s);
-  ctx.beginPath();
+function drawBridge(ctx, colors, proj, s, gap, rim) {
   const y = -4;
-  roundedRect(ctx, -gap / 2 - 2, y - rim * 0.55, gap + 4, rim * 1.35, 2);
+  const z0 = wrapZ(0);
+  const body = [
+    [-gap / 2 - 2, y - rim * 0.55, z0],
+    [gap / 2 + 2, y - rim * 0.55, z0],
+    [gap / 2 + 2, y + rim * 0.8, z0],
+    [-gap / 2 - 2, y + rim * 0.8, z0],
+  ];
+  ctx.beginPath();
+  pathLocal(ctx, proj, body);
   ctx.fillStyle = colors.frame;
   ctx.fill();
+  const shine = [
+    [-gap / 2 + 1, y - 1.2, z0],
+    [gap / 2 - 1, y - 1.2, z0],
+    [gap / 2 - 1, y + 1.2, z0],
+    [-gap / 2 + 1, y + 1.2, z0],
+  ];
   ctx.beginPath();
-  roundedRect(ctx, -gap / 2 + 1, y - 1.2, gap - 2, 2.4, 1);
+  pathLocal(ctx, proj, shine);
   ctx.fillStyle = colors.highlight;
   ctx.globalAlpha *= 0.45;
   ctx.fill();
-  ctx.restore();
+  ctx.globalAlpha /= 0.45;
 }
 
-function drawPod(ctx, colors, s, lensCx, lensW, lensH, side) {
-  ctx.save();
-  ctx.scale(s, s);
+function drawPod(ctx, colors, proj, s, lensCx, lensW, side) {
   const x = lensCx + side * (lensW / 2 + 6.5);
   const y = 1;
+  const z = wrapZ(x);
+  const body = [
+    [x - 6, y - 11, z],
+    [x + 6, y - 11, z],
+    [x + 6, y + 9, z],
+    [x - 6, y + 9, z],
+  ];
   ctx.beginPath();
-  roundedRect(ctx, x - 6, y - 11, 12, 20, 2);
+  pathLocal(ctx, proj, body);
   ctx.fillStyle = colors.frame;
   ctx.fill();
+  const cam = proj(x + side * 1.6, y + 1, z + 1);
   ctx.beginPath();
-  ctx.arc(x + side * 1.6, y + 1, 1.7, 0, Math.PI * 2);
+  ctx.arc(cam.x, cam.y, 1.7 * s, 0, Math.PI * 2);
   ctx.fillStyle = "#070707";
   ctx.fill();
+  const glint = proj(x + side * 1.8, y + 0.6, z + 1.2);
   ctx.beginPath();
-  ctx.arc(x + side * 1.8, y + 0.6, 0.55, 0, Math.PI * 2);
+  ctx.arc(glint.x, glint.y, 0.55 * s, 0, Math.PI * 2);
   ctx.fillStyle = "rgba(140,190,230,0.9)";
   ctx.fill();
-  ctx.restore();
 }
 
-function templeShape(side, yaw, pitch, hingeX, hingeY) {
-  const recede = yaw * side;
-  // Short front stubs wrap back toward the ears; yaw only changes length.
-  const length = Math.max(8, 12 + recede * 18);
-  const drop = 11 + clamp(pitch, -0.4, 0.4) * 2;
-  return {
-    x0: hingeX,
-    y0: hingeY,
-    x1: hingeX + side * length,
-    y1: hingeY + drop,
-    mx: hingeX + side * length * 0.52,
-    my: hingeY + drop * 0.38,
-  };
+function templePoly(side, lensCx, lensW) {
+  const hx = lensCx + side * (lensW / 2 + 11);
+  const hy = -2;
+  const hz = wrapZ(hx) + 2;
+  return [
+    [hx, hy - 4.4, hz],
+    [hx + side * 3.5, hy + 6 - 3.2, hz + 22],
+    [hx + side * 6, hy + 14 - 2.1, hz + 48],
+    [hx + side * 6, hy + 14 + 2.5, hz + 48],
+    [hx + side * 3.5, hy + 6 + 4.2, hz + 22],
+    [hx, hy + 5.4, hz],
+  ];
 }
 
-function drawTemple(ctx, colors, s, side, yaw, pitch, lensCx, lensW) {
-  ctx.save();
-  ctx.scale(s, s);
-  const hingeX = lensCx + side * (lensW / 2 + 11);
-  const hingeY = -2;
-  const t = templeShape(side, yaw, pitch, hingeX, hingeY);
+function drawTemple(ctx, colors, proj, s, side, lensCx, lensW) {
   ctx.beginPath();
-  ctx.moveTo(t.x0, t.y0 - 4.2);
-  ctx.quadraticCurveTo(t.mx, t.my - 3.2, t.x1, t.y1 - 2.2);
-  ctx.lineTo(t.x1, t.y1 + 2.6);
-  ctx.quadraticCurveTo(t.mx, t.my + 4.4, t.x0, t.y0 + 5.6);
-  ctx.closePath();
+  pathLocal(ctx, proj, templePoly(side, lensCx, lensW));
   ctx.fillStyle = colors.frame;
   ctx.fill();
-  ctx.restore();
-}
-
-function roundedRect(ctx, x, y, w, h, r) {
-  const rr = Math.min(r, w / 2, h / 2);
-  ctx.moveTo(x + rr, y);
-  ctx.arcTo(x + w, y, x + w, y + h, rr);
-  ctx.arcTo(x + w, y + h, x, y + h, rr);
-  ctx.arcTo(x, y + h, x, y, rr);
-  ctx.arcTo(x, y, x + w, y, rr);
-  ctx.closePath();
-}
-
-function clamp(n, a, b) {
-  return Math.max(a, Math.min(b, n));
 }
 
 function takePhoto() {
