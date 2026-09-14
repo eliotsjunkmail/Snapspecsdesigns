@@ -437,14 +437,51 @@ function poseFromLandmarks(lm, cover) {
 
   const midX = (left.x + right.x) / 2;
   const midY = (left.y + right.y) / 2;
-  return {
+  const originZ = (left.z + right.z) * 0.5;
+  const pose = {
     x: midX * 0.45 + bridge.x * 0.55,
     y: midY + ipd * 0.02,
+    originZ,
     scale: ipd / 66,
     ax,
     ay,
     az,
     alpha: 1,
+  };
+  const ear = rigidEarFromLandmarks(lm, cover, pose);
+  pose.earX = ear.x;
+  pose.earY = ear.y;
+  pose.earZ = ear.z;
+  return pose;
+}
+
+function worldToLocal(pose, p) {
+  const dx = p.x - pose.x;
+  const dy = p.y - pose.y;
+  const dz = p.z - pose.originZ;
+  const s = pose.scale || 1;
+  return {
+    x: (dx * pose.ax.x + dy * pose.ax.y + dz * pose.ax.z) / s,
+    y: (dx * pose.ay.x + dy * pose.ay.y + dz * pose.ay.z) / s,
+    z: (dx * pose.az.x + dy * pose.az.y + dz * pose.az.z) / s,
+  };
+}
+
+function clamp(n, a, b) {
+  return Math.max(a, Math.min(b, n));
+}
+
+/** One mirrored ear target so both temples tuck behind the ears together. */
+function rigidEarFromLandmarks(lm, cover, pose) {
+  const leftEar = worldToLocal(pose, pt(lm, 234, cover));
+  const rightEar = worldToLocal(pose, pt(lm, 454, cover));
+  const x = (Math.abs(leftEar.x) + Math.abs(rightEar.x)) * 0.5;
+  const y = (leftEar.y + rightEar.y) * 0.5;
+  const z = (leftEar.z + rightEar.z) * 0.5;
+  return {
+    x: clamp(Number.isFinite(x) ? x : 58, 42, 82),
+    y: clamp(Number.isFinite(y) ? y : 16, 6, 28),
+    z: clamp(Number.isFinite(z) ? z : 50, 28, 78),
   };
 }
 
@@ -505,6 +542,10 @@ function filterPose(prev, next, dt) {
     ax,
     ay,
     az,
+    originZ: euroScalar("oz", next.originZ, dt, 0.55, 0.004),
+    earX: euroScalar("ex", next.earX, dt, 0.32, 0.003),
+    earY: euroScalar("ey", next.earY, dt, 0.32, 0.003),
+    earZ: euroScalar("ez", next.earZ, dt, 0.32, 0.003),
     alpha: 1,
   };
 }
@@ -556,7 +597,7 @@ function drawSnapSpecs(ctx, pose, colors) {
 
   for (const side of farFirst) {
     const cx = side < 0 ? leftCx : rightCx;
-    drawTemple(ctx, colors, proj, s, side, cx, lensW);
+    drawTemple(ctx, colors, proj, s, side, cx, lensW, pose);
     drawLens(ctx, colors, proj, s, cx, lensW, lensH, rim, side);
     drawPod(ctx, colors, proj, s, cx, lensW, side);
   }
@@ -705,23 +746,43 @@ function drawPod(ctx, colors, proj, s, lensCx, lensW, side) {
   ctx.fill();
 }
 
-function templePoly(side, lensCx, lensW) {
+function templePoly(side, lensCx, lensW, pose) {
   const hx = lensCx + side * (lensW / 2 + 11);
   const hy = -2;
   const hz = wrapZ(hx) + 2;
-  return [
-    [hx, hy - 4.4, hz],
-    [hx + side * 3.5, hy + 6 - 3.2, hz + 22],
-    [hx + side * 6, hy + 14 - 2.1, hz + 48],
-    [hx + side * 6, hy + 14 + 2.5, hz + 48],
-    [hx + side * 3.5, hy + 6 + 4.2, hz + 22],
-    [hx, hy + 5.4, hz],
-  ];
+  const earX = pose?.earX ?? 58;
+  const earY = pose?.earY ?? 16;
+  const earZ = pose?.earZ ?? 50;
+  // Stay inside the hinge and end behind the ear, not out as a wing.
+  const tipR = clamp(earX - 8, 34, Math.abs(hx) - 3);
+  const tipX = side * tipR;
+  const tipY = clamp(earY + 4, 8, 30);
+  const tipZ = clamp(earZ + 12, hz + 22, 92);
+  const mx = hx * 0.62 + tipX * 0.38;
+  const my = hy * 0.45 + tipY * 0.55;
+  const mz = hz * 0.28 + tipZ * 0.72;
+  return {
+    hinge: [hx, hy, hz],
+    tip: [tipX, tipY, tipZ],
+    pts: [
+      [hx, hy - 4.2, hz],
+      [mx, my - 2.4, mz],
+      [tipX, tipY - 1.2, tipZ],
+      [tipX, tipY + 1.4, tipZ],
+      [mx, my + 3.2, mz],
+      [hx, hy + 5.2, hz],
+    ],
+  };
 }
 
-function drawTemple(ctx, colors, proj, s, side, lensCx, lensW) {
+function drawTemple(ctx, colors, proj, s, side, lensCx, lensW, pose) {
+  const temple = templePoly(side, lensCx, lensW, pose);
+  const hinge = proj(...temple.hinge);
+  const tip = proj(...temple.tip);
+  // Skip arms that come toward the camera — those would read as wings.
+  if (tip.z + 2 < hinge.z) return;
   ctx.beginPath();
-  pathLocal(ctx, proj, templePoly(side, lensCx, lensW));
+  pathLocal(ctx, proj, temple.pts);
   ctx.fillStyle = colors.frame;
   ctx.fill();
 }
