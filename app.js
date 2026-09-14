@@ -50,7 +50,7 @@ import {
   videoHasPaintedFrame,
   waitForPaintedVideoFrame,
 } from "./video-preview.js";
-import { bindTryOn, isTryOnOpen, closeTryOn } from "./try-on.js?v=185";
+import { bindTryOn, isTryOnOpen, closeTryOn } from "./try-on.js?v=186";
 
 const CAMERA_RANGE_MIN_FT = 25;
 const CAMERA_RANGE_MAX_FT = 10 * 5280;
