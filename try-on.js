@@ -402,6 +402,8 @@ function poseFromLandmarks(lm, cover) {
   };
   const nose = pt(lm, 1, cover);
   const bridge = pt(lm, 168, cover);
+  const leftEar = pt(lm, 234, cover);
+  const rightEar = pt(lm, 454, cover);
   const dx = right.x - left.x;
   const dy = right.y - left.y;
   const ipd = Math.hypot(dx, dy);
@@ -409,9 +411,10 @@ function poseFromLandmarks(lm, cover) {
   const roll = Math.atan2(dy, dx);
   const midX = (left.x + right.x) / 2;
   const midY = (left.y + right.y) / 2;
-  // Nose offset is stabler than landmark z when the phone moves.
-  const yaw = clamp((nose.x - midX) / ipd, -0.85, 0.85);
-  const pitch = clamp(((nose.y - midY) / ipd) * 0.7, -0.5, 0.4);
+  const yawZ = Math.atan2(leftOuter.z - rightOuter.z, 0.14);
+  const yawX = (nose.x - midX) / ipd;
+  const yaw = clamp(yawZ * 0.7 + yawX * 0.45, -0.95, 0.95);
+  const pitch = clamp(((nose.y - midY) / ipd) * 0.9, -0.55, 0.45);
   return {
     x: midX * 0.4 + bridge.x * 0.6,
     y: midY + ipd * 0.04,
@@ -419,6 +422,8 @@ function poseFromLandmarks(lm, cover) {
     roll,
     yaw,
     pitch,
+    leftEar,
+    rightEar,
     alpha: 1,
   };
 }
@@ -463,9 +468,17 @@ function filterPose(prev, next, dt) {
     x: euroScalar("x", next.x, dt, 0.9, 0.008),
     y: euroScalar("y", next.y, dt, 0.9, 0.008),
     scale: euroScalar("scale", next.scale, dt, 0.55, 0.004),
-    roll: euroScalar("roll", next.roll, dt, 0.35, 0.003, true),
-    yaw: euroScalar("yaw", next.yaw, dt, 0.28, 0.002),
-    pitch: euroScalar("pitch", next.pitch, dt, 0.28, 0.002),
+    roll: euroScalar("roll", next.roll, dt, 0.7, 0.012, true),
+    yaw: euroScalar("yaw", next.yaw, dt, 0.75, 0.018),
+    pitch: euroScalar("pitch", next.pitch, dt, 0.7, 0.012),
+    leftEar: {
+      x: euroScalar("lex", next.leftEar.x, dt, 0.85, 0.01),
+      y: euroScalar("ley", next.leftEar.y, dt, 0.85, 0.01),
+    },
+    rightEar: {
+      x: euroScalar("rex", next.rightEar.x, dt, 0.85, 0.01),
+      y: euroScalar("rey", next.rightEar.y, dt, 0.85, 0.01),
+    },
     alpha: 1,
   };
 }
@@ -476,10 +489,12 @@ function drawSnapSpecs(ctx, pose, colors) {
   if (!Number.isFinite(s) || s < 0.2) return;
   ctx.save();
   ctx.globalAlpha = Math.max(0, Math.min(1, pose.alpha ?? 1));
-  ctx.translate(pose.x, pose.y + pose.pitch * s * 6);
+  const yaw = clamp(pose.yaw, -0.85, 0.85);
+  const pitch = clamp(pose.pitch, -0.5, 0.4);
+  const flatten = Math.max(0.42, Math.cos(yaw));
+  ctx.translate(pose.x, pose.y + pitch * s * 6);
   ctx.rotate(pose.roll);
-  const yaw = clamp(pose.yaw, -0.7, 0.7);
-  ctx.scale(Math.max(0.42, Math.cos(yaw)), 1);
+  ctx.transform(flatten, pitch * 0.16, 0, 1, 0, 0);
 
   const lensW = 50;
   const lensH = 30;
@@ -487,9 +502,13 @@ function drawSnapSpecs(ctx, pose, colors) {
   const rim = 5.4;
   const leftCx = -(gap / 2 + lensW / 2);
   const rightCx = gap / 2 + lensW / 2;
+  const leftHinge = { x: leftCx - (lensW / 2 + 11), y: -2 };
+  const rightHinge = { x: rightCx + (lensW / 2 + 11), y: -2 };
+  const leftEar = toGlassesLocal(pose.leftEar, pose, flatten, s);
+  const rightEar = toGlassesLocal(pose.rightEar, pose, flatten, s);
 
-  drawTemple(ctx, colors, s, -1, yaw, leftCx, lensW, lensH);
-  drawTemple(ctx, colors, s, 1, yaw, rightCx, lensW, lensH);
+  drawTemple(ctx, colors, s, -1, leftHinge, leftEar, yaw);
+  drawTemple(ctx, colors, s, 1, rightHinge, rightEar, yaw);
   drawLens(ctx, colors, s, leftCx, 0, lensW, lensH, rim, -1, yaw);
   drawLens(ctx, colors, s, rightCx, 0, lensW, lensH, rim, 1, yaw);
   drawBridge(ctx, colors, s, gap, rim);
@@ -497,6 +516,17 @@ function drawSnapSpecs(ctx, pose, colors) {
   drawPod(ctx, colors, s, rightCx, lensW, lensH, 1);
 
   ctx.restore();
+}
+
+function toGlassesLocal(ear, pose, flatten, s) {
+  if (!ear || !Number.isFinite(ear.x)) return null;
+  let x = ear.x - pose.x;
+  let y = ear.y - (pose.y + pose.pitch * s * 6);
+  const c = Math.cos(-pose.roll);
+  const sn = Math.sin(-pose.roll);
+  const rx = x * c - y * sn;
+  const ry = x * sn + y * c;
+  return { x: rx / (flatten * s), y: ry / s };
 }
 
 function drawLens(ctx, colors, s, cx, cy, w, h, rim, side, yaw) {
@@ -618,20 +648,52 @@ function drawPod(ctx, colors, s, lensCx, lensW, lensH, side) {
   ctx.restore();
 }
 
-function drawTemple(ctx, colors, s, side, yaw, lensCx, lensW, lensH) {
-  const recede = yaw * side;
-  if (recede < 0.1) return;
+function drawTemple(ctx, colors, s, side, hinge, ear, yaw) {
   ctx.save();
   ctx.scale(s, s);
-  const x0 = lensCx + side * (lensW / 2 + 11);
-  const y0 = -2;
-  const length = 12 + recede * 36;
-  const drop = 4 + recede * 10;
+  const recede = yaw * side;
+  let endX;
+  let endY;
+  if (ear && Number.isFinite(ear.x) && Number.isFinite(ear.y)) {
+    // Hug the cheek / ear instead of sticking out as a wing.
+    endX = hinge.x + (ear.x - hinge.x) * 0.92;
+    endY = hinge.y + (ear.y - hinge.y) * 0.92;
+    const along = (endX - hinge.x) * side;
+    if (along < 6) {
+      endX = hinge.x + side * (14 + Math.max(0, recede) * 28);
+      endY = hinge.y + 8 + Math.max(0, recede) * 10;
+    }
+  } else {
+    endX = hinge.x + side * (16 + Math.max(0, recede) * 42);
+    endY = hinge.y + 6 + Math.max(0, recede) * 14;
+  }
+
+  const dx = endX - hinge.x;
+  const dy = endY - hinge.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist < 8) {
+    ctx.restore();
+    return;
+  }
+  const nx = -dy / dist;
+  const ny = dx / dist;
+  const w0 = 5.2;
+  const w1 = 2.8;
   ctx.beginPath();
-  ctx.moveTo(x0, y0 - 4);
-  ctx.lineTo(x0 + side * length, y0 - 3 + drop);
-  ctx.lineTo(x0 + side * length, y0 + 6 + drop);
-  ctx.lineTo(x0, y0 + 6);
+  ctx.moveTo(hinge.x + nx * w0, hinge.y + ny * w0);
+  ctx.quadraticCurveTo(
+    hinge.x + dx * 0.45 + nx * 4,
+    hinge.y + dy * 0.45 + ny * 4,
+    endX + nx * w1,
+    endY + ny * w1
+  );
+  ctx.lineTo(endX - nx * w1, endY - ny * w1);
+  ctx.quadraticCurveTo(
+    hinge.x + dx * 0.45 - nx * 4,
+    hinge.y + dy * 0.45 - ny * 4,
+    hinge.x - nx * w0,
+    hinge.y - ny * w0
+  );
   ctx.closePath();
   ctx.fillStyle = colors.frame;
   ctx.fill();
