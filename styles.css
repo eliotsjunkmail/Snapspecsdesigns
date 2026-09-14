@@ -2648,6 +2648,7 @@ button {
 
 .tryon-shot-img {
   flex: 1;
+  min-height: 0;
   width: 100%;
   object-fit: contain;
   background: #000;
