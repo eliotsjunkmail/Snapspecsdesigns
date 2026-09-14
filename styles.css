@@ -246,6 +246,13 @@ button {
   cursor: wait;
 }
 
+.gate-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.7rem;
+}
+
 .file-input {
   position: absolute;
   width: 1px;
@@ -2371,4 +2378,298 @@ button {
     animation: none !important;
     transition: none !important;
   }
+}
+
+/* —— Snap Specs virtual try-on —— */
+.cta-tryon {
+  position: relative;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0.58rem 0.95rem 0.58rem 0.8rem;
+  border: 1px solid rgba(255, 255, 255, 0.88);
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.38);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.cta-tryon-icon {
+  display: grid;
+  place-items: center;
+  width: 1.05rem;
+  height: 1.05rem;
+}
+
+.cta-tryon-icon svg {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+
+.cta-tryon:active {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.tryon {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: #000;
+}
+
+.tryon[hidden] {
+  display: none !important;
+}
+
+.tryon-consent,
+.tryon-stage,
+.tryon-shot-modal {
+  position: absolute;
+  inset: 0;
+}
+
+.tryon-consent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: calc(28px + var(--safe-top)) 28px calc(28px + var(--safe-bottom));
+  background: #000;
+  text-align: center;
+}
+
+.tryon-consent-copy {
+  width: min(100%, 22rem);
+  display: grid;
+  gap: 0.85rem;
+  justify-items: center;
+}
+
+.tryon-kicker {
+  margin: 0;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.tryon-consent-title {
+  margin: 0;
+  font-size: 1.7rem;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+.tryon-consent-body {
+  margin: 0.15rem 0 0.4rem;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.tryon-consent-body a {
+  color: #fff;
+}
+
+.tryon-agree,
+.tryon-shot {
+  width: 100%;
+  min-height: 3.15rem;
+  border: 0;
+  border-radius: 2px;
+  background: #fff;
+  color: #000;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.tryon-agree:active,
+.tryon-shot:active {
+  background: #e8e8e8;
+}
+
+.tryon-x {
+  position: absolute;
+  top: calc(12px + var(--safe-top));
+  right: 16px;
+  z-index: 3;
+  width: 2.15rem;
+  height: 2.15rem;
+  display: grid;
+  place-items: center;
+  border: 1.5px solid rgba(255, 255, 255, 0.85);
+  border-radius: 2px;
+  background: transparent;
+  color: #fff;
+  font-size: 1.35rem;
+  line-height: 1;
+  pointer-events: auto;
+}
+
+.tryon-stage {
+  background: #000;
+  overflow: hidden;
+}
+
+.tryon-cam,
+.tryon-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.tryon-cam {
+  object-fit: cover;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.tryon-canvas {
+  display: block;
+}
+
+.tryon-top {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  padding: calc(18px + var(--safe-top)) 64px 0 20px;
+  pointer-events: none;
+}
+
+.tryon-brand {
+  margin: 0;
+  text-align: center;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.42em;
+}
+
+.tryon-hint {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  z-index: 2;
+  transform: translate(-50%, -50%);
+  margin: 0;
+  padding: 0.45rem 0.8rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45);
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+}
+
+.tryon-hint[hidden] {
+  display: none !important;
+}
+
+.tryon-dock {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  display: grid;
+  gap: 0.7rem;
+  justify-items: center;
+  padding: 0 18px calc(16px + var(--safe-bottom));
+  background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.72) 38%, #000);
+}
+
+.tryon-chips {
+  display: flex;
+  gap: 6px;
+}
+
+.tryon-chips button {
+  min-width: 4.6rem;
+  min-height: 1.85rem;
+  padding: 0 0.7rem;
+  border-radius: 2px;
+  border: 0;
+  background: rgba(60, 60, 60, 0.95);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.tryon-chips button.is-on {
+  background: #111;
+}
+
+.tryon-finishes {
+  display: flex;
+  gap: 8px;
+}
+
+.tryon-swatch {
+  width: 2.35rem;
+  height: 1.55rem;
+  border-radius: 2px;
+  border: 2px solid transparent;
+  background: #111;
+}
+
+.tryon-swatch-silver {
+  background: #cfcfcf;
+}
+
+.tryon-swatch.is-on {
+  border-color: #fff;
+}
+
+.tryon-shot-modal {
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  background: #000;
+}
+
+.tryon-shot-modal[hidden] {
+  display: none !important;
+}
+
+.tryon-shot-img {
+  flex: 1;
+  width: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+.tryon-shot-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 12px 16px calc(16px + var(--safe-bottom));
+}
+
+.tryon-shot-ghost {
+  min-height: 3.15rem;
+  border-radius: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: transparent;
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+body.tryon-open {
+  overflow: hidden;
 }

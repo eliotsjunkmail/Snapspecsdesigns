@@ -50,6 +50,7 @@ import {
   videoHasPaintedFrame,
   waitForPaintedVideoFrame,
 } from "./video-preview.js";
+import { bindTryOn, isTryOnOpen, closeTryOn } from "./try-on.js";
 
 const CAMERA_RANGE_MIN_FT = 25;
 const CAMERA_RANGE_MAX_FT = 10 * 5280;
@@ -4459,6 +4460,7 @@ function isThumbsUpPose(landmarks) {
 function updateHandGestures(nowMs) {
   if (!handLandmarker || !camEl) return;
   if (state.watching || state.mapOpen || state.booting || state.naming) return;
+  if (isTryOnOpen()) return;
   if (camEl.readyState < 2 || !camEl.videoWidth) return;
   if (nowMs - lastHandCheckAt < 66) return; // ~15 fps
   lastHandCheckAt = nowMs;
@@ -4676,6 +4678,7 @@ async function syncSharedSpots() {
 }
 
 function enterField(e) {
+  if (isTryOnOpen()) return;
   if (state.booting || state.booted) return;
   // Avoid a second synthetic click after touchend (would see booting=true and no-op).
   if (e?.type === "touchend") {
@@ -5789,4 +5792,18 @@ window.addEventListener("keydown", (e) => {
     const node = resolveWatchNode();
     if (node) openTheater(node);
   }
+});
+
+bindTryOn({
+  onOpen: () => {
+    closeSettingsModal();
+    closeAddModal();
+    closeCreateModal(true);
+    closeAdminPassModal();
+    closeAdminModal();
+  },
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && isTryOnOpen()) closeTryOn();
 });
