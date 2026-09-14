@@ -19,7 +19,7 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=177" />
+    <link rel="stylesheet" href="styles.css?v=178" />
   </head>
   <body>
     <div id="app">
@@ -114,6 +114,13 @@
           </button>
           </div>
         </header>
+
+        <div class="view-swap view-swap-field" role="group" aria-label="View">
+          <button type="button" id="swap-to-tryon" class="view-swap-btn">On you</button>
+          <button type="button" class="view-swap-btn is-on" aria-pressed="true" disabled>
+            Open lens
+          </button>
+        </div>
 
         <button
           type="button"
@@ -621,6 +628,19 @@
           </button>
           <header class="tryon-top">
             <p class="tryon-brand">SNAP SPECS</p>
+            <div class="view-swap" role="group" aria-label="View">
+              <button type="button" class="view-swap-btn is-on" aria-pressed="true">
+                On you
+              </button>
+              <button
+                type="button"
+                id="tryon-open-lens"
+                class="view-swap-btn"
+                aria-pressed="false"
+              >
+                Open lens
+              </button>
+            </div>
           </header>
           <p id="tryon-hint" class="tryon-hint">Look at the camera</p>
           <div class="tryon-dock">
@@ -637,9 +657,9 @@
               ></button>
               <button
                 type="button"
-                data-tryon-finish="silver"
-                class="tryon-swatch tryon-swatch-silver"
-                aria-label="Silver"
+                data-tryon-finish="yellow"
+                class="tryon-swatch tryon-swatch-yellow"
+                aria-label="Snap yellow"
               ></button>
             </div>
             <button type="button" id="tryon-shot" class="tryon-shot">
@@ -668,6 +688,6 @@
       }
     </script>
     <script src="https://js.puter.com/v2/"></script>
-    <script type="module" src="app.js?v=177"></script>
+    <script type="module" src="app.js?v=178"></script>
   </body>
 </html>

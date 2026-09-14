@@ -4678,8 +4678,19 @@ async function syncSharedSpots() {
 }
 
 function enterField(e) {
-  if (isTryOnOpen()) return;
-  if (state.booting || state.booted) return;
+  if (isTryOnOpen()) closeTryOn();
+  if (state.booting) return;
+  if (state.booted) {
+    field.hidden = false;
+    field.removeAttribute("hidden");
+    field.style.display = "block";
+    if (!camEl.srcObject) {
+      startCamera().catch((err) => console.warn(err));
+    } else {
+      camEl.play().catch(() => {});
+    }
+    return;
+  }
   // Avoid a second synthetic click after touchend (would see booting=true and no-op).
   if (e?.type === "touchend") {
     try {
@@ -5801,6 +5812,12 @@ bindTryOn({
     closeCreateModal(true);
     closeAdminPassModal();
     closeAdminModal();
+    closeTheaterMode();
+  },
+  onOpenLens: (e) => {
+    closeSettingsModal();
+    closeTheaterMode();
+    enterField(e);
   },
 });
 

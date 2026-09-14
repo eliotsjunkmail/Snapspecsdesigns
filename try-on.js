@@ -8,6 +8,7 @@ const FACE_MODEL =
   "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
 
 const SIZE_SCALE = { 47: 0.9, 52: 1 };
+const SNAP_YELLOW = "#FFFC00";
 const FINISHES = {
   black: {
     frame: "#111111",
@@ -17,13 +18,13 @@ const FINISHES = {
     lens: "rgba(40, 70, 95, 0.28)",
     lensEdge: "rgba(180, 210, 230, 0.35)",
   },
-  silver: {
-    frame: "#c8c8c8",
-    rim: "#ececec",
-    highlight: "rgba(255,255,255,0.45)",
-    metal: "#8d8d8d",
-    lens: "rgba(20, 40, 62, 0.42)",
-    lensEdge: "rgba(255,255,255,0.4)",
+  yellow: {
+    frame: SNAP_YELLOW,
+    rim: "#fff56a",
+    highlight: "rgba(255,255,255,0.4)",
+    metal: "#c4b400",
+    lens: "rgba(18, 28, 38, 0.42)",
+    lensEdge: "rgba(40, 40, 10, 0.35)",
   },
 };
 
@@ -40,6 +41,7 @@ let faceLoadPromise = null;
 let stream = null;
 let rafId = 0;
 let running = false;
+let startingLive = false;
 let lastVideoTs = -1;
 let lastDetectAt = 0;
 let smooth = null;
@@ -47,12 +49,16 @@ let lostAt = 0;
 let sizeMm = 52;
 let finish = "black";
 let photoUrl = "";
+let hasConsented = false;
+let euro = {};
+let lastFilterAt = 0;
+let onOpenLens = null;
 
 export function isTryOnOpen() {
   return Boolean(root && !root.hidden);
 }
 
-export function bindTryOn({ onOpen } = {}) {
+export function bindTryOn({ onOpen, onOpenLens: openLens } = {}) {
   root = document.getElementById("tryon-root");
   consentEl = document.getElementById("tryon-consent");
   stageEl = document.getElementById("tryon-stage");
@@ -61,6 +67,7 @@ export function bindTryOn({ onOpen } = {}) {
   canvasEl = document.getElementById("tryon-canvas");
   hintEl = document.getElementById("tryon-hint");
   shotImg = document.getElementById("tryon-shot-img");
+  onOpenLens = openLens;
   if (!root) return;
 
   const open = () => {
@@ -78,9 +85,29 @@ export function bindTryOn({ onOpen } = {}) {
     e.stopPropagation();
     open();
   });
+  document.getElementById("swap-to-tryon")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    open();
+  });
   document.getElementById("tryon-consent-close")?.addEventListener("click", closeTryOn);
-  document.getElementById("tryon-close")?.addEventListener("click", closeTryOn);
-  document.getElementById("tryon-agree")?.addEventListener("click", startLiveTryOn);
+  document.getElementById("tryon-close")?.addEventListener("click", () => {
+    const fieldEl = document.getElementById("field");
+    if (typeof onOpenLens === "function" && fieldEl && !fieldEl.hidden) {
+      goToLens();
+      return;
+    }
+    closeTryOn();
+  });
+  document.getElementById("tryon-agree")?.addEventListener("click", () => {
+    hasConsented = true;
+    startLiveTryOn();
+  });
+  document.getElementById("tryon-open-lens")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    goToLens(e);
+  });
   document.getElementById("tryon-shot")?.addEventListener("click", takePhoto);
   document.getElementById("tryon-retake")?.addEventListener("click", hideShot);
   document.getElementById("tryon-save")?.addEventListener("click", savePhoto);
@@ -96,18 +123,29 @@ export function bindTryOn({ onOpen } = {}) {
   }
 }
 
+function goToLens(e) {
+  closeTryOn();
+  onOpenLens?.(e);
+}
+
 export function openTryOn() {
   if (!root) return;
   hideShot();
   root.hidden = false;
   root.setAttribute("aria-hidden", "false");
+  document.body.classList.add("tryon-open");
+  if (hasConsented) {
+    if (consentEl) consentEl.hidden = true;
+    startLiveTryOn();
+    return;
+  }
   if (consentEl) consentEl.hidden = false;
   if (stageEl) stageEl.hidden = true;
-  document.body.classList.add("tryon-open");
 }
 
 export function closeTryOn() {
   running = false;
+  startingLive = false;
   if (rafId) cancelAnimationFrame(rafId);
   rafId = 0;
   stopStream();
@@ -120,25 +158,33 @@ export function closeTryOn() {
   if (stageEl) stageEl.hidden = true;
   document.body.classList.remove("tryon-open");
   smooth = null;
+  euro = {};
+  lastFilterAt = 0;
 }
 
 async function startLiveTryOn() {
   if (consentEl) consentEl.hidden = true;
   if (stageEl) stageEl.hidden = false;
+  if (running || startingLive) return;
+  startingLive = true;
   setHint("Starting camera…");
   try {
     await startFrontCamera();
   } catch (err) {
     console.warn(err);
+    startingLive = false;
     setHint("Camera blocked — allow access to try on");
     return;
   }
   setHint("Finding your face…");
   ensureFaceLandmarker();
   running = true;
+  startingLive = false;
   lastVideoTs = -1;
   lastDetectAt = 0;
   lostAt = 0;
+  euro = {};
+  lastFilterAt = 0;
   tick();
 }
 
@@ -272,27 +318,29 @@ function tick() {
   const cover = drawVideoCover(ctx, videoEl, w, h);
   ctx.filter = "none";
 
-  const pose = detectPose(cover, performance.now());
-  if (pose) {
+  const now = performance.now();
+  const raw = detectPose(cover, now);
+  if (raw && raw !== "hold") {
     lostAt = 0;
-    smooth = lerpPose(smooth, pose, smooth ? 0.38 : 1);
+    const dt = lastFilterAt ? Math.min(0.08, (now - lastFilterAt) / 1000) : 1 / 30;
+    lastFilterAt = now;
+    smooth = filterPose(smooth, raw, dt);
     setHint("");
-    const faded = { ...smooth, alpha: 1 };
-    faded.scale *= SIZE_SCALE[sizeMm] || 1;
-    drawSnapSpecs(ctx, faded, FINISHES[finish]);
-  } else {
-    if (!lostAt) lostAt = performance.now();
-    const gone = performance.now() - lostAt;
-    if (smooth && gone < 280) {
-      const faded = { ...smooth, alpha: 1 - gone / 280 };
-      faded.scale *= SIZE_SCALE[sizeMm] || 1;
-      drawSnapSpecs(ctx, faded, FINISHES[finish]);
-    } else {
+  } else if (raw !== "hold" && raw == null) {
+    if (!lostAt) lostAt = now;
+    const gone = now - lostAt;
+    if (!smooth || gone > 700) {
       smooth = null;
+      euro = {};
       if (videoEl.readyState >= 2) {
         setHint(faceLandmarker ? "Look at the camera" : "Finding your face…");
       }
     }
+  }
+  if (smooth) {
+    const faded = { ...smooth, alpha: 1 };
+    faded.scale *= SIZE_SCALE[sizeMm] || 1;
+    drawSnapSpecs(ctx, faded, FINISHES[finish] || FINISHES.black);
   }
 }
 
@@ -315,7 +363,7 @@ function drawVideoCover(ctx, video, w, h) {
 
 function detectPose(cover, nowMs) {
   if (!faceLandmarker || !videoEl || videoEl.readyState < 2) return null;
-  if (nowMs - lastDetectAt < 33) return smooth;
+  if (nowMs - lastDetectAt < 33) return "hold";
   lastDetectAt = nowMs;
   let ts = nowMs;
   if (ts <= lastVideoTs) ts = lastVideoTs + 1;
@@ -324,7 +372,7 @@ function detectPose(cover, nowMs) {
   try {
     result = faceLandmarker.detectForVideo(videoEl, ts);
   } catch {
-    return smooth;
+    return "hold";
   }
   const lm = result?.faceLandmarks?.[0];
   if (!lm) return null;
@@ -340,12 +388,20 @@ function pt(lm, i, cover) {
 }
 
 function poseFromLandmarks(lm, cover) {
-  const left = pt(lm, 33, cover);
-  const right = pt(lm, 263, cover);
+  const leftOuter = pt(lm, 33, cover);
+  const leftInner = pt(lm, 133, cover);
+  const rightInner = pt(lm, 362, cover);
+  const rightOuter = pt(lm, 263, cover);
+  const left = {
+    x: (leftOuter.x + leftInner.x) * 0.5,
+    y: (leftOuter.y + leftInner.y) * 0.5,
+  };
+  const right = {
+    x: (rightOuter.x + rightInner.x) * 0.5,
+    y: (rightOuter.y + rightInner.y) * 0.5,
+  };
   const nose = pt(lm, 1, cover);
   const bridge = pt(lm, 168, cover);
-  const brow = pt(lm, 10, cover);
-  const chin = pt(lm, 152, cover);
   const dx = right.x - left.x;
   const dy = right.y - left.y;
   const ipd = Math.hypot(dx, dy);
@@ -353,11 +409,11 @@ function poseFromLandmarks(lm, cover) {
   const roll = Math.atan2(dy, dx);
   const midX = (left.x + right.x) / 2;
   const midY = (left.y + right.y) / 2;
-  const yaw = Math.atan2(left.z - right.z, ipd / cover.dw) * 0.85;
-  const faceH = Math.hypot(chin.x - brow.x, chin.y - brow.y) || ipd * 2.4;
-  const pitch = Math.atan2(nose.y - midY, faceH) * 1.6;
+  // Nose offset is stabler than landmark z when the phone moves.
+  const yaw = clamp((nose.x - midX) / ipd, -0.85, 0.85);
+  const pitch = clamp(((nose.y - midY) / ipd) * 0.7, -0.5, 0.4);
   return {
-    x: midX * 0.25 + bridge.x * 0.75,
+    x: midX * 0.4 + bridge.x * 0.6,
     y: midY + ipd * 0.04,
     scale: ipd / 72,
     roll,
@@ -367,20 +423,50 @@ function poseFromLandmarks(lm, cover) {
   };
 }
 
-function lerpPose(a, b, t) {
-  if (!a) return { ...b };
-  const lerpA = (x, y) => x + (y - x) * t;
-  let dRoll = b.roll - a.roll;
-  while (dRoll > Math.PI) dRoll -= Math.PI * 2;
-  while (dRoll < -Math.PI) dRoll += Math.PI * 2;
+function alphaCutoff(dt, cutoff) {
+  const te = 1 / (2 * Math.PI * cutoff);
+  return 1 / (1 + te / Math.max(dt, 1 / 120));
+}
+
+function euroScalar(key, value, dt, minCutoff, beta, angle) {
+  const prev = euro[key];
+  if (!prev) {
+    euro[key] = { x: value, dx: 0 };
+    return value;
+  }
+  let target = value;
+  if (angle) {
+    let d = target - prev.x;
+    while (d > Math.PI) {
+      target -= Math.PI * 2;
+      d = target - prev.x;
+    }
+    while (d < -Math.PI) {
+      target += Math.PI * 2;
+      d = target - prev.x;
+    }
+  }
+  const rawDx = (target - prev.x) / Math.max(dt, 1 / 120);
+  const dxHat = prev.dx + alphaCutoff(dt, 1) * (rawDx - prev.dx);
+  const cutoff = minCutoff + beta * Math.abs(dxHat);
+  const x = prev.x + alphaCutoff(dt, cutoff) * (target - prev.x);
+  euro[key] = { x, dx: dxHat };
+  return x;
+}
+
+function filterPose(prev, next, dt) {
+  if (!prev) {
+    euro = {};
+    return { ...next };
+  }
   return {
-    x: lerpA(a.x, b.x),
-    y: lerpA(a.y, b.y),
-    scale: lerpA(a.scale, b.scale),
-    roll: a.roll + dRoll * t,
-    yaw: lerpA(a.yaw, b.yaw),
-    pitch: lerpA(a.pitch, b.pitch),
-    alpha: b.alpha,
+    x: euroScalar("x", next.x, dt, 0.9, 0.008),
+    y: euroScalar("y", next.y, dt, 0.9, 0.008),
+    scale: euroScalar("scale", next.scale, dt, 0.55, 0.004),
+    roll: euroScalar("roll", next.roll, dt, 0.35, 0.003, true),
+    yaw: euroScalar("yaw", next.yaw, dt, 0.28, 0.002),
+    pitch: euroScalar("pitch", next.pitch, dt, 0.28, 0.002),
+    alpha: 1,
   };
 }
 

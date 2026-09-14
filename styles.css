@@ -1215,6 +1215,7 @@ button {
 }
 
 .field.is-watching .hud-top,
+.field.is-watching .view-swap-field,
 .field.is-watching .hud-bottom,
 .field.is-watching .add-fab,
 .field.is-watching .field-loading,
@@ -2627,12 +2628,58 @@ button {
   background: #111;
 }
 
-.tryon-swatch-silver {
-  background: #cfcfcf;
+.tryon-swatch-yellow {
+  background: #fffc00;
 }
 
 .tryon-swatch.is-on {
   border-color: #fff;
+}
+
+.view-swap {
+  display: flex;
+  gap: 0;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.45);
+  pointer-events: auto;
+}
+
+.view-swap-btn {
+  min-height: 1.85rem;
+  padding: 0 0.85rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.view-swap-btn.is-on {
+  background: #fff;
+  color: #000;
+}
+
+.view-swap-btn:disabled {
+  opacity: 1;
+}
+
+.tryon-top .view-swap {
+  margin: 0.7rem auto 0;
+  width: max-content;
+}
+
+.view-swap-field {
+  position: absolute;
+  z-index: 6;
+  top: calc(68px + var(--safe-top));
+  left: 12px;
+  transform: none;
+  white-space: nowrap;
 }
 
 .tryon-shot-modal {
