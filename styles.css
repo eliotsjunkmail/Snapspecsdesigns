@@ -824,7 +824,7 @@ button {
 }
 
 .radar {
-  top: calc(72px + var(--safe-top));
+  top: calc(118px + var(--safe-top));
   right: 16px;
   width: 84px;
   height: 84px;
@@ -1214,6 +1214,8 @@ button {
   pointer-events: none;
 }
 
+.field.is-watching .field-top,
+.field.is-watching .field-place,
 .field.is-watching .hud-top,
 .field.is-watching .view-swap-field,
 .field.is-watching .hud-bottom,
@@ -2668,17 +2670,42 @@ button {
   opacity: 1;
 }
 
+.tryon-x svg {
+  width: 1.15rem;
+  height: 1.15rem;
+  display: block;
+}
+
+.field-top {
+  z-index: 6;
+}
+
+.field-place {
+  position: absolute;
+  z-index: 6;
+  left: 12px;
+  right: 12px;
+  bottom: calc(102px + var(--safe-bottom));
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 8px 8px 12px;
+  overflow: visible;
+  pointer-events: none;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.88);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
 .tryon-top .view-swap {
   margin: 0.7rem auto 0;
   width: max-content;
 }
 
 .view-swap-field {
-  position: absolute;
-  z-index: 6;
-  top: calc(68px + var(--safe-top));
-  left: 12px;
-  transform: none;
   white-space: nowrap;
 }
 

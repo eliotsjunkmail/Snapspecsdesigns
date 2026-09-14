@@ -19,7 +19,7 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=180" />
+    <link rel="stylesheet" href="styles.css?v=181" />
   </head>
   <body>
     <div id="app">
@@ -69,42 +69,15 @@
         ></video>
         <canvas id="stage" class="stage"></canvas>
 
-        <header class="hud-top">
-          <div class="town-slot">
-            <button
-              type="button"
-              class="town-pick"
-              id="town-select"
-              aria-haspopup="dialog"
-              aria-controls="map-modal"
-              aria-expanded="false"
-              aria-label="Open map"
-            >Nearby</button>
-            <p class="watch-label" id="focus-label">Scan the field</p>
-          </div>
-          <div class="hud-top-actions">
-            <button
-              type="button"
-              class="field-locate"
-              id="field-locate"
-              aria-label="Center on current location"
-              title="My location"
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  fill="currentColor"
-                  d="M12 8a4 4 0 1 1 0 8 4 4 0 0 1 0-8zm0-6h2v2.06A8.01 8.01 0 0 1 19.94 10H22v2h-2.06A8.01 8.01 0 0 1 14 19.94V22h-2v-2.06A8.01 8.01 0 0 1 4.06 12H2v-2h2.06A8.01 8.01 0 0 1 10 4.06V2h2zm0 4a6 6 0 1 0 0 12 6 6 0 0 0 0-12z"
-                />
-              </svg>
-            </button>
-            <button
-              type="button"
-              id="settings-btn"
-              class="settings-btn"
-              aria-label="Settings"
-              aria-expanded="false"
-              aria-controls="settings-modal"
-            >
+        <header class="tryon-top field-top">
+          <button
+            type="button"
+            id="settings-btn"
+            class="tryon-x"
+            aria-label="Settings"
+            aria-expanded="false"
+            aria-controls="settings-modal"
+          >
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path
                 fill="currentColor"
@@ -112,15 +85,14 @@
               />
             </svg>
           </button>
+          <p class="tryon-brand">SNAP SPECS</p>
+          <div class="view-swap" role="group" aria-label="View">
+            <button type="button" id="swap-to-tryon" class="view-swap-btn">On you</button>
+            <button type="button" class="view-swap-btn is-on" aria-pressed="true" disabled>
+              Open lens
+            </button>
           </div>
         </header>
-
-        <div class="view-swap view-swap-field" role="group" aria-label="View">
-          <button type="button" id="swap-to-tryon" class="view-swap-btn">On you</button>
-          <button type="button" class="view-swap-btn is-on" aria-pressed="true" disabled>
-            Open lens
-          </button>
-        </div>
 
         <button
           type="button"
@@ -155,6 +127,35 @@
           </div>
 
           <div id="react-burst" class="react-burst" hidden aria-hidden="true">👍</div>
+
+          <div class="field-place">
+            <div class="town-slot">
+              <button
+                type="button"
+                class="town-pick"
+                id="town-select"
+                aria-haspopup="dialog"
+                aria-controls="map-modal"
+                aria-expanded="false"
+                aria-label="Open map"
+              >Nearby</button>
+              <p class="watch-label" id="focus-label">Scan the field</p>
+            </div>
+            <button
+              type="button"
+              class="field-locate"
+              id="field-locate"
+              aria-label="Center on current location"
+              title="My location"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  fill="currentColor"
+                  d="M12 8a4 4 0 1 1 0 8 4 4 0 0 1 0-8zm0-6h2v2.06A8.01 8.01 0 0 1 19.94 10H22v2h-2.06A8.01 8.01 0 0 1 14 19.94V22h-2v-2.06A8.01 8.01 0 0 1 4.06 12H2v-2h2.06A8.01 8.01 0 0 1 10 4.06V2h2zm0 4a6 6 0 1 0 0 12 6 6 0 0 0 0-12z"
+                />
+              </svg>
+            </button>
+          </div>
 
           <button type="button" id="add-btn" class="add-fab" aria-label="Add" title="Add">
             <span class="add-fab-shutter" aria-hidden="true"></span>
@@ -688,6 +689,6 @@
       }
     </script>
     <script src="https://js.puter.com/v2/"></script>
-    <script type="module" src="app.js?v=180"></script>
+    <script type="module" src="app.js?v=181"></script>
   </body>
 </html>

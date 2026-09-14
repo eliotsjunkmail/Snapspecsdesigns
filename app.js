@@ -1378,7 +1378,7 @@ function layoutCameraCarousel() {
     renderer?.domElement?.clientHeight || window.innerHeight || 1
   );
   state.carouselViewH = viewH;
-  const hudEl = document.querySelector(".hud-top");
+  const hudEl = document.querySelector(".field-top") || document.querySelector(".hud-top");
   const { topPx, botPx } = carouselHudBandPx(
     hudEl?.getBoundingClientRect?.().bottom,
     viewH,
