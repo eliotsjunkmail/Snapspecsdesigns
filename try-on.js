@@ -18,12 +18,12 @@ const FINISHES = {
     lensEdge: "rgba(180, 210, 230, 0.35)",
   },
   silver: {
-    frame: "#d8d8d8",
-    rim: "#f2f2f2",
-    highlight: "rgba(255,255,255,0.55)",
-    metal: "#9a9a9a",
-    lens: "rgba(30, 50, 70, 0.22)",
-    lensEdge: "rgba(220, 230, 240, 0.45)",
+    frame: "#c8c8c8",
+    rim: "#ececec",
+    highlight: "rgba(255,255,255,0.45)",
+    metal: "#8d8d8d",
+    lens: "rgba(20, 40, 62, 0.42)",
+    lensEdge: "rgba(255,255,255,0.4)",
   },
 };
 
@@ -357,9 +357,9 @@ function poseFromLandmarks(lm, cover) {
   const faceH = Math.hypot(chin.x - brow.x, chin.y - brow.y) || ipd * 2.4;
   const pitch = Math.atan2(nose.y - midY, faceH) * 1.6;
   return {
-    x: midX * 0.35 + bridge.x * 0.65,
-    y: midY * 0.55 + bridge.y * 0.45,
-    scale: ipd / 64,
+    x: midX * 0.25 + bridge.x * 0.75,
+    y: midY + ipd * 0.04,
+    scale: ipd / 72,
     roll,
     yaw,
     pitch,
@@ -390,23 +390,20 @@ function drawSnapSpecs(ctx, pose, colors) {
   if (!Number.isFinite(s) || s < 0.2) return;
   ctx.save();
   ctx.globalAlpha = Math.max(0, Math.min(1, pose.alpha ?? 1));
-  ctx.translate(pose.x, pose.y);
+  ctx.translate(pose.x, pose.y + pose.pitch * s * 6);
   ctx.rotate(pose.roll);
   const yaw = clamp(pose.yaw, -0.7, 0.7);
-  const pitch = clamp(pose.pitch, -0.45, 0.35);
-  const flatten = Math.cos(yaw);
-  ctx.transform(flatten, pitch * 0.18, 0, 1 + Math.abs(pitch) * 0.04, 0, 0);
+  ctx.scale(Math.max(0.42, Math.cos(yaw)), 1);
 
-  const lensW = 52;
-  const lensH = 36;
-  const gap = 16;
-  const rim = 6.2;
+  const lensW = 50;
+  const lensH = 30;
+  const gap = 14;
+  const rim = 5.4;
   const leftCx = -(gap / 2 + lensW / 2);
   const rightCx = gap / 2 + lensW / 2;
 
   drawTemple(ctx, colors, s, -1, yaw, leftCx, lensW, lensH);
   drawTemple(ctx, colors, s, 1, yaw, rightCx, lensW, lensH);
-
   drawLens(ctx, colors, s, leftCx, 0, lensW, lensH, rim, -1, yaw);
   drawLens(ctx, colors, s, rightCx, 0, lensW, lensH, rim, 1, yaw);
   drawBridge(ctx, colors, s, gap, rim);
@@ -419,8 +416,15 @@ function drawSnapSpecs(ctx, pose, colors) {
 function drawLens(ctx, colors, s, cx, cy, w, h, rim, side, yaw) {
   ctx.save();
   ctx.scale(s, s);
-  const outer = lensOutline(cx, cy, w + rim * 2, h + rim * 2, side);
-  const inner = lensOutline(cx, cy, w, h, side);
+  const outer = lensOutline(cx, cy, w + rim * 2, h + rim * 2, side, 5.5);
+  const inner = lensOutline(cx, cy, w, h, side, 3.2);
+
+  ctx.beginPath();
+  pathPoly(ctx, outer);
+  ctx.fillStyle = "rgba(0,0,0,0.28)";
+  ctx.translate(0, 1.4);
+  ctx.fill();
+  ctx.translate(0, -1.4);
 
   ctx.beginPath();
   pathPoly(ctx, outer);
@@ -430,43 +434,59 @@ function drawLens(ctx, colors, s, cx, cy, w, h, rim, side, yaw) {
   ctx.beginPath();
   pathPoly(ctx, inner);
   const g = ctx.createLinearGradient(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2);
-  g.addColorStop(0, "rgba(255,255,255,0.16)");
-  g.addColorStop(0.45, colors.lens);
-  g.addColorStop(1, "rgba(0,0,0,0.38)");
+  g.addColorStop(0, "rgba(255,255,255,0.2)");
+  g.addColorStop(0.4, colors.lens);
+  g.addColorStop(1, "rgba(0,0,0,0.32)");
   ctx.fillStyle = g;
   ctx.fill();
   ctx.strokeStyle = colors.lensEdge;
-  ctx.lineWidth = 1.1;
+  ctx.lineWidth = 0.9;
   ctx.stroke();
 
   ctx.beginPath();
-  ctx.ellipse(cx - 8 * side, cy - 8, 14, 7, -0.4 * side, 0, Math.PI * 2);
+  ctx.ellipse(cx - 6 * side, cy - 7, 12, 5.5, -0.35 * side, 0, Math.PI * 2);
   ctx.fillStyle = colors.highlight;
   ctx.fill();
 
-  // Inner temple reflection in the lens (SPECS try-on look).
   ctx.beginPath();
-  ctx.moveTo(cx + side * (w * 0.18), cy - h * 0.28);
-  ctx.lineTo(cx + side * (w * 0.42), cy - h * 0.08);
-  ctx.lineTo(cx + side * (w * 0.38), cy + h * 0.22);
-  ctx.lineTo(cx + side * (w * 0.12), cy + h * 0.08);
+  ctx.moveTo(cx + side * (w * 0.1), cy - h * 0.22);
+  ctx.lineTo(cx + side * (w * 0.38), cy - h * 0.06);
+  ctx.lineTo(cx + side * (w * 0.34), cy + h * 0.18);
+  ctx.lineTo(cx + side * (w * 0.06), cy + h * 0.06);
   ctx.closePath();
-  ctx.fillStyle = `rgba(20,20,20,${0.18 + Math.abs(yaw) * 0.2})`;
+  ctx.fillStyle = `rgba(15,15,15,${0.14 + Math.abs(yaw) * 0.18})`;
   ctx.fill();
   ctx.restore();
 }
 
-function lensOutline(cx, cy, w, h, side) {
-  const ox = side * (w * 0.08);
+function lensOutline(cx, cy, w, h, side, chamfer) {
+  const c = chamfer;
+  const outer = side; // +1 right lens outer is +x
+  const x0 = cx - w / 2;
+  const x1 = cx + w / 2;
+  const y0 = cy - h / 2;
+  const y1 = cy + h / 2;
+  if (outer > 0) {
+    return [
+      [x0 + 3, y0],
+      [x1 - c, y0],
+      [x1, y0 + c],
+      [x1, y1 - c],
+      [x1 - c, y1],
+      [x0 + 3, y1],
+      [x0, y1 - 3],
+      [x0, y0 + 3],
+    ];
+  }
   return [
-    [cx - w / 2 + 7 - ox * 0.2, cy - h / 2],
-    [cx + w / 2 - 4 + ox, cy - h / 2 + 3],
-    [cx + w / 2 + 2 + ox, cy - h * 0.12],
-    [cx + w / 2 + 2 + ox, cy + h * 0.18],
-    [cx + w / 2 - 6 + ox, cy + h / 2],
-    [cx - w / 2 + 8 - ox * 0.2, cy + h / 2],
-    [cx - w / 2 - 1, cy + h * 0.12],
-    [cx - w / 2 - 1, cy - h * 0.18],
+    [x0 + c, y0],
+    [x1 - 3, y0],
+    [x1, y0 + 3],
+    [x1, y1 - 3],
+    [x1 - 3, y1],
+    [x0 + c, y1],
+    [x0, y1 - c],
+    [x0, y0 + c],
   ];
 }
 
@@ -495,41 +515,39 @@ function drawBridge(ctx, colors, s, gap, rim) {
 function drawPod(ctx, colors, s, lensCx, lensW, lensH, side) {
   ctx.save();
   ctx.scale(s, s);
-  const x = lensCx + side * (lensW / 2 + 7);
-  const y = 2;
+  const x = lensCx + side * (lensW / 2 + 6.5);
+  const y = 1;
   ctx.beginPath();
-  roundedRect(ctx, x - 7, y - lensH * 0.28, 14, 22, 2.5);
+  roundedRect(ctx, x - 6, y - 11, 12, 20, 2);
   ctx.fillStyle = colors.frame;
   ctx.fill();
   ctx.beginPath();
-  ctx.arc(x + side * 2, y + 2, 2.1, 0, Math.PI * 2);
-  ctx.fillStyle = "#0a0a0a";
+  ctx.arc(x + side * 1.6, y + 1, 1.7, 0, Math.PI * 2);
+  ctx.fillStyle = "#070707";
   ctx.fill();
   ctx.beginPath();
-  ctx.arc(x + side * 2.2, y + 1.6, 0.7, 0, Math.PI * 2);
-  ctx.fillStyle = "rgba(120,180,220,0.85)";
+  ctx.arc(x + side * 1.8, y + 0.6, 0.55, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(140,190,230,0.9)";
   ctx.fill();
   ctx.restore();
 }
 
 function drawTemple(ctx, colors, s, side, yaw, lensCx, lensW, lensH) {
-  const visible = side * yaw;
-  const length = 78 * (0.55 + Math.max(0, visible) * 1.4);
-  if (length < 18) return;
+  const recede = yaw * side;
+  if (recede < 0.1) return;
   ctx.save();
   ctx.scale(s, s);
-  const x0 = lensCx + side * (lensW / 2 + 12);
-  const y0 = -lensH * 0.08;
-  const depth = 22 + Math.abs(yaw) * 28;
+  const x0 = lensCx + side * (lensW / 2 + 11);
+  const y0 = -2;
+  const length = 12 + recede * 36;
+  const drop = 4 + recede * 10;
   ctx.beginPath();
-  ctx.moveTo(x0, y0 - 5);
-  ctx.lineTo(x0 + side * length * 0.15, y0 - 4);
-  ctx.lineTo(x0 + side * length, y0 - 2 + depth * 0.15);
-  ctx.lineTo(x0 + side * length, y0 + 8 + depth * 0.15);
-  ctx.lineTo(x0 + side * length * 0.15, y0 + 8);
-  ctx.lineTo(x0, y0 + 7);
+  ctx.moveTo(x0, y0 - 4);
+  ctx.lineTo(x0 + side * length, y0 - 3 + drop);
+  ctx.lineTo(x0 + side * length, y0 + 6 + drop);
+  ctx.lineTo(x0, y0 + 6);
   ctx.closePath();
-  ctx.fillStyle = colors.metal;
+  ctx.fillStyle = colors.frame;
   ctx.fill();
   ctx.restore();
 }
@@ -551,17 +569,14 @@ function clamp(n, a, b) {
 function takePhoto() {
   if (!canvasEl) return;
   hideShot();
-  canvasEl.toBlob(
-    (blob) => {
-      if (!blob) return;
-      if (photoUrl) URL.revokeObjectURL(photoUrl);
-      photoUrl = URL.createObjectURL(blob);
-      if (shotImg) shotImg.src = photoUrl;
-      if (shotEl) shotEl.hidden = false;
-    },
-    "image/jpeg",
-    0.92
-  );
+  try {
+    if (photoUrl && photoUrl.startsWith("blob:")) URL.revokeObjectURL(photoUrl);
+    photoUrl = canvasEl.toDataURL("image/jpeg", 0.92);
+    if (shotImg) shotImg.src = photoUrl;
+    if (shotEl) shotEl.hidden = false;
+  } catch (err) {
+    console.warn(err);
+  }
 }
 
 function hideShot() {
